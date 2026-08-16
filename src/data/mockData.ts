@@ -1,0 +1,232 @@
+import { TokenOption, Payment, LoyaltyTier, CustomerLoyaltyCard, RewardCampaign, VerseRewardRecord, MerchantProfile, CustomerProfile, MerchantLoyaltyGoal } from '../types';
+
+export const DEFAULT_MERCHANT_LOYALTY_GOAL: MerchantLoyaltyGoal = {
+  enabled: true,
+  targetPurchases: 5,
+  rewardType: 'fixed_verse',
+  rewardValue: 250,
+  rewardDescription: 'Make 5 purchases and receive 250 bonus VERSE cashback reward.',
+};
+
+export const SUPPORTED_TOKENS: TokenOption[] = [
+  {
+    symbol: 'USDT',
+    name: 'Tether USD (Stablecoin)',
+    decimals: 6,
+    rateToUSD: 1.0,
+    icon: '₮',
+    color: '#26A17B',
+    network: 'Polygon / Ethereum / BSC / Avalanche',
+    isStablecoin: true,
+  },
+  {
+    symbol: 'USDC',
+    name: 'USD Coin (Stablecoin)',
+    decimals: 6,
+    rateToUSD: 1.0,
+    icon: '$',
+    color: '#2775CA',
+    network: 'Polygon / Ethereum / BSC / Avalanche',
+    isStablecoin: true,
+  },
+  {
+    symbol: 'DAI',
+    name: 'Dai Stablecoin (Decentralized)',
+    decimals: 18,
+    rateToUSD: 1.0,
+    icon: '◈',
+    color: '#F5AC37',
+    network: 'Polygon / Ethereum / BSC / Avalanche',
+    isStablecoin: true,
+  },
+  {
+    symbol: 'VERSE',
+    name: 'Verse (Customer Loyalty & Rewards)',
+    decimals: 18,
+    rateToUSD: 0.00032,
+    icon: '⚡',
+    color: '#00D2FE',
+    network: 'Polygon / Ethereum',
+  },
+  {
+    symbol: 'ETH',
+    name: 'Ether (Ethereum Native Gas Asset)',
+    decimals: 18,
+    rateToUSD: 2850.0,
+    icon: 'Ξ',
+    color: '#627EEA',
+    network: 'Ethereum (Gas) / Polygon (WETH)',
+  },
+  {
+    symbol: 'MATIC',
+    name: 'Polygon POL (Polygon Native Gas Asset)',
+    decimals: 18,
+    rateToUSD: 0.42,
+    icon: '🟣',
+    color: '#8247E5',
+    network: 'Polygon Mainnet (Gas)',
+  },
+  {
+    symbol: 'BNB',
+    name: 'BNB (BNB Smart Chain Native Gas Asset)',
+    decimals: 18,
+    rateToUSD: 580.0,
+    icon: '🟡',
+    color: '#F0B90B',
+    network: 'BNB Smart Chain (Gas)',
+  },
+  {
+    symbol: 'AVAX',
+    name: 'Avalanche AVAX (Avalanche Native Gas Asset)',
+    decimals: 18,
+    rateToUSD: 26.0,
+    icon: '🔺',
+    color: '#E84142',
+    network: 'Avalanche C-Chain (Gas)',
+  },
+  {
+    symbol: 'WBTC',
+    name: 'Wrapped Bitcoin',
+    decimals: 8,
+    rateToUSD: 96450.0,
+    icon: '₿',
+    color: '#F7931A',
+    network: 'Polygon / Ethereum / BSC',
+  },
+  {
+    symbol: 'BTC',
+    name: 'Bitcoin (Native Layer 1)',
+    decimals: 8,
+    rateToUSD: 96450.0,
+    icon: '₿',
+    color: '#F7931A',
+    network: 'Bitcoin Mainnet',
+  },
+  {
+    symbol: 'SOL',
+    name: 'Solana (Native Layer 1)',
+    decimals: 9,
+    rateToUSD: 184.2,
+    icon: '🟣',
+    color: '#14F195',
+    network: 'Solana Mainnet-Beta',
+  },
+  {
+    symbol: 'TRX',
+    name: 'TRON (Native Layer 1)',
+    decimals: 6,
+    rateToUSD: 0.245,
+    icon: '🔴',
+    color: '#FF060A',
+    network: 'TRON Mainnet',
+  },
+];
+
+export const FIAT_CURRENCIES = [
+  { code: 'USD', symbol: '$', name: 'US Dollar (USD)' },
+  { code: 'EUR', symbol: '€', name: 'Euro (EUR)' },
+  { code: 'GBP', symbol: '£', name: 'British Pound (GBP)' },
+  { code: 'CAD', symbol: 'CA$', name: 'Canadian Dollar (CAD)' },
+  { code: 'AUD', symbol: 'AU$', name: 'Australian Dollar (AUD)' },
+  { code: 'JPY', symbol: '¥', name: 'Japanese Yen (JPY)' },
+];
+
+export const DEFAULT_LOYALTY_TIERS: LoyaltyTier[] = [
+  {
+    id: 'tier-bronze',
+    name: 'Bronze Member',
+    tierLevel: 1,
+    minVisits: 0,
+    minSpendUSD: 0,
+    bonusVersePercent: 1.0,
+    perkDescription: 'Standard 3.0% VERSE cashback on all transactions',
+    color: '#cd7f32',
+    badge: '🥉',
+  },
+  {
+    id: 'tier-silver',
+    name: 'Silver Regular',
+    tierLevel: 2,
+    minVisits: 5,
+    minSpendUSD: 150,
+    bonusVersePercent: 1.25,
+    perkDescription: '+25% bonus VERSE rewards + 5% merchant store discount',
+    color: '#94a3b8',
+    badge: '🥈',
+  },
+  {
+    id: 'tier-gold',
+    name: 'Gold Patron',
+    tierLevel: 3,
+    minVisits: 15,
+    minSpendUSD: 500,
+    bonusVersePercent: 1.75,
+    perkDescription: '+75% bonus VERSE rewards + 10% discount & priority queue',
+    color: '#eab308',
+    badge: '🥇',
+  },
+  {
+    id: 'tier-platinum',
+    name: 'Verse Elite VIP',
+    tierLevel: 4,
+    minVisits: 30,
+    minSpendUSD: 1200,
+    bonusVersePercent: 2.5,
+    perkDescription: '2.5x maximum VERSE drop rate + 15% VIP discount + exclusive token drops',
+    color: '#00D182',
+    badge: '💎',
+  },
+];
+
+// Clean initial merchant profile - ready for real setup or onboarding
+export const INITIAL_MERCHANT_PROFILE: MerchantProfile = {
+  id: 'm-iris-merchant-default',
+  email: 'merchant@irisme.io',
+  name: 'IRIS Boutique & Cafe',
+  description: 'Decentralized merchant powered by IRISME with instant VERSE rewards and zero chargebacks.',
+  category: 'Food & Beverage / Retail',
+  tagline: 'Decentralized non-custodial crypto checkout with instant VERSE rewards.',
+  website: 'https://irisboutique.example.com',
+  supportEmail: 'support@irisboutique.example.com',
+  phone: '+1 (555) 234-8901',
+  businessAddress: '742 Evergreen Terrace, Suite 100, San Francisco, CA',
+  taxId: 'US-94829104',
+  settlementAddress: '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093',
+  defaultPaymentAsset: 'USDT',
+  defaultFiatCurrency: 'USD',
+  status: 'active',
+  verseRewardPoolBalance: 500000,
+  baseRewardPercent: 3.0,
+  autoReplenishPool: true,
+  replenishThreshold: 50000,
+  loyaltyProgramEnabled: true,
+  loyaltyGoal: DEFAULT_MERCHANT_LOYALTY_GOAL,
+  isOnboarded: true,
+  apiKey: 'iris_live_sec_89dfa0248e3a2b71946c19',
+  apiWebhookUrl: 'https://api.irispay.io/webhooks/v1',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
+export const INITIAL_CUSTOMER_PROFILE: CustomerProfile = {
+  id: 'c-iris-customer-default',
+  walletAddress: '',
+  displayName: 'Crypto Shopper',
+  avatarIcon: '💳',
+  favoriteCategories: ['Cafes & Dining', 'Tech & Electronics'],
+  autoStakeVerse: false,
+  notifyOnCashback: true,
+  welcomeBonusClaimed: false,
+  isOnboarded: false,
+  tierRank: 'Bronze Member',
+  joinedAt: new Date().toISOString(),
+};
+
+// No mock dummy data - initial clean state populated by real user activity
+export const INITIAL_PAYMENTS: Payment[] = [];
+
+export const INITIAL_CAMPAIGNS: RewardCampaign[] = [];
+
+export const INITIAL_CUSTOMER_LOYALTY_CARDS: CustomerLoyaltyCard[] = [];
+
+export const INITIAL_CUSTOMER_REWARDS: VerseRewardRecord[] = [];

@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --iris-cyan: #00D2FE;
+    --iris-blue: #0072FF;
+    --iris-indigo: #6366F1;
+    --iris-violet: #8B5CF6;
+    --iris-magenta: #EC4899;
+    --iris-pink: #FF0080;
+    --iris-emerald: #00D182;
+  }
+
+  body {
+    background-color: #FFFFFF;
+    color: #0F172A;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    overflow-x: hidden;
+  }
+}
+
+/* Iridescent Iris Gradients */
+.bg-iris-gradient {
+  background: linear-gradient(135deg, #00D2FE 0%, #6366F1 45%, #8B5CF6 70%, #FF0080 100%);
+}
+
+.bg-iris-gradient-subtle {
+  background: linear-gradient(135deg, rgba(0, 210, 254, 0.07) 0%, rgba(124, 58, 237, 0.08) 50%, rgba(255, 0, 128, 0.07) 100%);
+}
+
+.text-iris-gradient {
+  background: linear-gradient(135deg, #00D2FE 0%, #7C3AED 50%, #FF0080 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.border-iris-glow {
+  border-color: rgba(124, 58, 237, 0.35);
+  box-shadow: 0 4px 20px -4px rgba(124, 58, 237, 0.15);
+}
+
+.border-iris-glow:hover {
+  border-color: rgba(0, 210, 254, 0.6);
+  box-shadow: 0 6px 25px -3px rgba(0, 210, 254, 0.22);
+}
+
+/* Keyframes & Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.985) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pulseGlow {
+  animation: pulseGlow 4s ease-in-out infinite;
+}
+
+/* Custom modern light scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #F8FAFC;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #7C3AED;
+}
+
