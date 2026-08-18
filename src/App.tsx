@@ -7,6 +7,8 @@ import { Sidebar } from './components/ui/Sidebar';
 import { MobileNav } from './components/ui/MobileNav';
 import { WalletModal } from './components/ui/WalletModal';
 import { WrongNetworkBanner } from './components/ui/WrongNetworkBanner';
+import { InteractiveTutorialModal } from './components/tutorial/InteractiveTutorialModal';
+import { GuidedTourEngine } from './components/tutorial/GuidedTourEngine';
 
 // Views
 import { LandingPage } from './views/LandingPage';
@@ -19,33 +21,31 @@ import { MerchantRewards } from './views/merchant/MerchantRewards';
 import { MerchantLoyalty } from './views/merchant/MerchantLoyalty';
 import { MerchantCampaigns } from './views/merchant/MerchantCampaigns';
 import { CustomerPaymentPage } from './views/customer/CustomerPaymentPage';
-import { CustomerDashboard } from './views/customer/CustomerDashboard';
-import { CustomerRewards } from './views/customer/CustomerRewards';
-import { CustomerLoyalty } from './views/customer/CustomerLoyalty';
-import { CustomerOnboarding } from './views/customer/CustomerOnboarding';
 import { TransferPage } from './views/transfer/TransferPage';
 import { SettingsPage } from './views/SettingsPage';
 
 const AppContent: React.FC = () => {
   const { currentPath } = useRouter();
-  const { wallet } = useApp();
+  const {
+    isTutorialOpen,
+    tutorialTab,
+    closeTutorial,
+    isGuidedTourActive,
+    guidedTourType,
+    stopGuidedTour,
+  } = useApp();
 
-  const isMerchantRoute = currentPath.startsWith('/merchant');
-  const isCustomerRoute = currentPath.startsWith('/customer');
   const isPayRoute = currentPath.startsWith('/pay');
   const isTransferRoute = currentPath === '/transfer';
   const isLandingRoute = currentPath === '/';
 
-  // Determine active layout mode
-  const sidebarMode: 'merchant' | 'customer' = isCustomerRoute ? 'customer' : 'merchant';
-
   const renderCurrentView = () => {
-    // 1. Landing
+    // 1. Landing Page
     if (isLandingRoute) {
       return <LandingPage />;
     }
 
-    // 2. Customer Payment Checkout (/pay/:paymentId)
+    // 2. Customer Payment Checkout (/pay/:paymentId) - No sign up required, instant wallet connect & pay
     if (isPayRoute) {
       return <CustomerPaymentPage />;
     }
@@ -84,26 +84,12 @@ const AppContent: React.FC = () => {
       return <MerchantCampaigns />;
     }
 
-    // 5. Customer Routes
-    if (currentPath === '/customer/onboarding') {
-      return <CustomerOnboarding />;
-    }
-    if (currentPath === '/customer') {
-      return <CustomerDashboard />;
-    }
-    if (currentPath === '/customer/rewards') {
-      return <CustomerRewards />;
-    }
-    if (currentPath === '/customer/loyalty') {
-      return <CustomerLoyalty />;
-    }
-
-    // 6. Settings
+    // 5. Settings
     if (currentPath === '/settings') {
       return <SettingsPage />;
     }
 
-    // Fallback
+    // Fallback: Default to landing page or merchant overview
     return <LandingPage />;
   };
 
@@ -117,8 +103,8 @@ const AppContent: React.FC = () => {
 
       {/* Main Layout Container */}
       <div className="flex-1 flex w-full">
-        {/* Sidebar on App Pages (Merchant & Customer), hidden on Landing and Dedicated Checkout */}
-        {!isLandingRoute && !isPayRoute && <Sidebar mode={sidebarMode} />}
+        {/* Sidebar on App Pages, hidden on Landing and Dedicated Checkout */}
+        {!isLandingRoute && !isPayRoute && <Sidebar />}
 
         {/* View Content Area */}
         <main
@@ -135,19 +121,34 @@ const AppContent: React.FC = () => {
 
       {/* Web3 Wallet Modal */}
       <WalletModal />
+
+      {/* Global Interactive Tutorial & Live Sandbox Demo */}
+      <InteractiveTutorialModal
+        isOpen={isTutorialOpen}
+        onClose={closeTutorial}
+        defaultTab={tutorialTab}
+      />
+
+      {/* Real-Time Guided Walkthrough with Animated Directional Pointer Hand */}
+      <GuidedTourEngine
+        isActive={isGuidedTourActive}
+        tourType={guidedTourType}
+        onClose={stopGuidedTour}
+      />
     </div>
   );
 };
 
-export default function App() {
+export function App() {
   return (
-    <RouterProvider>
-      <Web3Provider>
-        <AppProvider>
+    <Web3Provider>
+      <AppProvider>
+        <RouterProvider>
           <AppContent />
-        </AppProvider>
-      </Web3Provider>
-    </RouterProvider>
+        </RouterProvider>
+      </AppProvider>
+    </Web3Provider>
   );
 }
 
+export default App;

@@ -7,7 +7,9 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { SupportedToken, FiatCurrency, Payment } from '../../types';
 import { SUPPORTED_TOKENS, FIAT_CURRENCIES } from '../../data/mockData';
 import { SUPPORTED_CHAINS, getChainConfig } from '../../config/chains';
+import { DEFAULT_PLATFORM_FEE_PERCENT } from '../../config';
 import { EconomicService } from '../../services/economicService';
+import { PriceService } from '../../services/priceService';
 import { PaymentQRCode } from '../../components/ui/PaymentQRCode';
 import { TokenLogo } from '../../components/ui/TokenLogo';
 import { TokenLogoModal } from '../../components/ui/TokenLogoModal';
@@ -27,6 +29,7 @@ import {
   AlertCircle,
   ArrowRight,
   Store,
+  Layers,
 } from 'lucide-react';
 
 const EXPIRATION_OPTIONS = [
@@ -40,14 +43,8 @@ const EXPIRATION_OPTIONS = [
 
 export const CreatePayment: React.FC = () => {
   const { navigate } = useRouter();
-  const { createPayment, merchantProfile, getPaymentById } = useApp();
+  const { createPayment, merchantProfile, getPaymentById, openTutorial } = useApp();
 
-  // Core Genuine Fields Only:
-  // 1. Amount
-  // 2. Supported payment asset
-  // 3. Short description
-  // 4. Optional order/reference ID
-  // 5. Expiration time
   const [amount, setAmount] = useState<string>('25.00');
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>(
     merchantProfile.defaultFiatCurrency || 'USD'
@@ -70,13 +67,36 @@ export const CreatePayment: React.FC = () => {
   const verseToken = SUPPORTED_TOKENS.find((t) => t.symbol === 'VERSE')!;
   const currentChain = getChainConfig(selectedChainId) || SUPPORTED_CHAINS[137];
 
+  // Auto-adjust default chain when token requires specific chain (e.g. BNB on 56, POL on 137, AVAX on 43114)
+  const handleSelectToken = (sym: SupportedToken) => {
+    setSelectedToken(sym);
+    if (sym === 'BNB') setSelectedChainId(56);
+    else if (sym === 'POL' || sym === 'MATIC' || sym === 'VERSE') setSelectedChainId(137);
+    else if (sym === 'AVAX') setSelectedChainId(43114);
+    else if (sym === 'SOL' || sym === 'BTC') setSelectedChainId(137); // EVM settlement hub
+  };
+
+  // Live verse and token price
+  const [liveVersePrice, setLiveVersePrice] = useState<number>(() => PriceService.getPrice('VERSE') || 0.0000176);
+
+  useEffect(() => {
+    const fetchPrices = async () => {
+      const v = await PriceService.getVersePrice();
+      if (v > 0) setLiveVersePrice(v);
+    };
+    fetchPrices();
+  }, []);
+
+  const activeVerseRate = liveVersePrice > 0 ? liveVersePrice : (verseToken.rateToUSD || 0.0000176);
+  const activeTokenRate = selectedToken === 'VERSE' ? activeVerseRate : (PriceService.getPrice(selectedToken) || tokenInfo.rateToUSD);
+
   // Crypto conversion
   const calculatedCrypto =
     selectedToken === 'VERSE'
-      ? Math.round(numAmount / verseToken.rateToUSD)
-      : selectedToken === 'ETH' || selectedToken === 'WBTC'
-      ? Number((numAmount / tokenInfo.rateToUSD).toFixed(6))
-      : Number((numAmount / tokenInfo.rateToUSD).toFixed(2));
+      ? Math.round(numAmount / activeVerseRate)
+      : selectedToken === 'ETH' || selectedToken === 'WBTC' || selectedToken === 'BTC' || selectedToken === 'SOL'
+      ? Number((numAmount / activeTokenRate).toFixed(6))
+      : Number((numAmount / activeTokenRate).toFixed(2));
 
   // 3-Concept Economic Calculation
   const liveEconomics = EconomicService.getPaymentEconomics({
@@ -87,6 +107,7 @@ export const CreatePayment: React.FC = () => {
     settlementAddress: merchantProfile.settlementAddress || '',
     merchantType: merchantProfile.merchantType || 'irisme_merchant',
     cashbackPercent: merchantProfile.baseRewardPercent || 1.0,
+    versePriceUSD: activeVerseRate,
     campaignMultiplier: 1.0,
   });
 
@@ -138,62 +159,73 @@ export const CreatePayment: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2.5">
-            <PlusCircle className="w-7 h-7 text-purple-600" />
-            Create Payment Request
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <span>Create Payment Request</span>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-bold">
+              Multi-Chain
+            </span>
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Generate an instant payment link and QR code in seconds for your customer checkout.
+          <p className="text-xs sm:text-sm text-slate-600 mt-1">
+            Generate an on-chain invoice with real-time barcode, QR code, and instant customer checkout.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-slate-500">Merchant Account:</span>
-          <span className="text-xs font-bold font-mono px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
-            {merchantProfile.name || 'IrisMe Merchant'}
-          </span>
+
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <Button
+            variant="secondary"
+            size="sm"
+            className="border-purple-200 bg-purple-50 hover:bg-purple-100 text-xs text-purple-900 cursor-pointer shadow-xs font-bold"
+            onClick={() => openTutorial('merchant')}
+            leftIcon={<Sparkles className="w-3.5 h-3.5 text-purple-600 animate-pulse" />}
+          >
+            Tutorial & Guide
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-slate-300 hover:border-purple-300 text-xs text-slate-700 cursor-pointer shadow-xs font-medium"
+            onClick={() => navigate('/merchant/payments')}
+          >
+            View Payments & Invoices
+          </Button>
         </div>
       </div>
 
+      {/* When Payment Has Been Generated: Display Full Invoice & QR Code */}
       {createdPayment ? (
-        /* Generated Payment Detailed View */
-        <div className="space-y-6 animate-fadeIn">
-          {/* Top Success Banner */}
-          <div className="p-6 sm:p-8 rounded-3xl bg-white border border-purple-200 space-y-6 shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-bl from-cyan-500/10 via-purple-500/10 to-pink-500/10 pointer-events-none rounded-full blur-3xl" />
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+        <div data-tour="generated-qr-channel" className="space-y-6">
+          <div className="p-6 sm:p-8 rounded-3xl bg-white border border-slate-200 shadow-xl space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#00D2FE] via-[#7C3AED] to-[#FF0080] flex items-center justify-center text-white shadow-lg shadow-purple-500/20 font-black">
-                  ✓
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 shadow-xs">
+                  <Check className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">Payment Link & QR Ready</h3>
-                  <p className="text-xs text-slate-500 font-mono">Invoice: {createdPayment.invoiceNumber}</p>
+                  <h3 className="text-lg font-bold text-slate-900">Payment Invoice Ready</h3>
+                  <p className="text-xs text-slate-500 font-mono">Invoice ID: {createdPayment.id}</p>
                 </div>
               </div>
-              <StatusBadge status={createdPayment.status} size="lg" pulse={true} />
-            </div>
 
-            {/* Quick Actions Bar */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Button
-                variant="iris"
-                size="md"
-                leftIcon={<ExternalLink className="w-4 h-4" />}
-                onClick={() => navigate(`/pay/${createdPayment.id}`)}
-                className="cursor-pointer font-bold shadow-md"
-              >
-                Open Customer Checkout Page
-              </Button>
-              <Button
-                variant="secondary"
-                size="md"
-                leftIcon={copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                onClick={handleCopyLink}
-                className="border-slate-200 hover:border-purple-300 cursor-pointer text-slate-700 font-semibold"
-              >
-                {copiedLink ? 'Payment Link Copied!' : 'Copy Payment Link'}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs border-slate-200 hover:border-purple-300 text-slate-700 cursor-pointer shadow-xs font-semibold"
+                  onClick={handleCopyLink}
+                  leftIcon={copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                >
+                  {copiedLink ? 'Link Copied!' : 'Copy Payment Link'}
+                </Button>
+                <Button
+                  variant="iris"
+                  size="sm"
+                  className="text-xs shadow-md shadow-purple-500/20 cursor-pointer font-bold"
+                  onClick={() => navigate(`/pay/${createdPayment.id}`)}
+                  leftIcon={<ExternalLink className="w-3.5 h-3.5" />}
+                >
+                  Open Checkout Page
+                </Button>
+              </div>
             </div>
 
             {/* Comprehensive Detail Grid */}
@@ -241,10 +273,17 @@ export const CreatePayment: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="flex justify-between py-1.5 border-b border-slate-200 bg-emerald-50/60 -mx-2 px-2 rounded-lg">
-                  <span className="text-emerald-800 font-sans font-bold">Net Receiving Amount:</span>
-                  <span className="text-emerald-700 font-bold">
-                    ${(createdPayment.netSettlementUSD ?? (createdPayment.amountUSD * (1 - (createdPayment.platformFeePercent ?? 0.25) / 100))).toFixed(2)}
+                <div className="flex justify-between py-1.5 border-b border-slate-200">
+                  <span className="text-slate-500">iRisme Platform Fee ({createdPayment.platformFeePercent ?? DEFAULT_PLATFORM_FEE_PERCENT}%):</span>
+                  <span className="text-slate-600 font-bold font-mono">
+                    -${(createdPayment.platformFeeUSD ?? (createdPayment.amountUSD * ((createdPayment.platformFeePercent ?? DEFAULT_PLATFORM_FEE_PERCENT) / 100))).toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between py-2 border-b border-slate-200 bg-emerald-50/80 -mx-2 px-3 rounded-xl">
+                  <span className="text-emerald-900 font-sans font-bold">You Receive (Net Settlement):</span>
+                  <span className="text-emerald-700 font-extrabold text-sm font-mono">
+                    ${(createdPayment.netSettlementUSD ?? (createdPayment.amountUSD - (createdPayment.platformFeeUSD ?? (createdPayment.amountUSD * ((createdPayment.platformFeePercent ?? DEFAULT_PLATFORM_FEE_PERCENT) / 100))))).toFixed(2)}
                   </span>
                 </div>
 
@@ -267,6 +306,10 @@ export const CreatePayment: React.FC = () => {
                   tokenAmount={createdPayment.tokenAmount}
                   tokenSymbol={createdPayment.selectedToken}
                   merchantAddress={merchantProfile.settlementAddress || '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093'}
+                  merchantName={merchantProfile.name || 'IrisMe Merchant'}
+                  itemDescription={createdPayment.description}
+                  networkName={getChainConfig(createdPayment.chainId || 137)?.name || 'Polygon'}
+                  verseEarned={createdPayment.verseEarned}
                 />
               </div>
             </div>
@@ -292,14 +335,14 @@ export const CreatePayment: React.FC = () => {
           </div>
         </div>
       ) : (
-        /* Simplified 5-Field Create Payment Form */
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        /* Create Payment Form */
+        <div data-tour="create-payment-form" className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Form (2 Cols) */}
           <div className="lg:col-span-2 space-y-6">
             <Card variant="default">
               <CardHeader
                 title="Payment Request Details"
-                subtitle="Enter payment amount, asset, description, reference and expiration"
+                subtitle="Enter payment amount, crypto asset, target blockchain network, and memo"
               />
               <CardContent className="p-6 sm:p-7 space-y-6">
                 <form onSubmit={handleSubmit} className="space-y-6">
@@ -346,7 +389,7 @@ export const CreatePayment: React.FC = () => {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        2. Supported Payment Asset <span className="text-purple-600">*</span>
+                        2. Crypto Payment Asset <span className="text-purple-600">*</span>
                       </label>
                       <button
                         type="button"
@@ -354,16 +397,16 @@ export const CreatePayment: React.FC = () => {
                         className="text-[11px] text-purple-600 hover:text-purple-800 font-bold flex items-center gap-1 cursor-pointer"
                       >
                         <Sparkles className="w-3 h-3 text-cyan-500" />
-                        <span>All Logos & Assets</span>
+                        <span>All {SUPPORTED_TOKENS.length} Assets</span>
                       </button>
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                      {SUPPORTED_TOKENS.slice(0, 8).map((token) => (
+                      {SUPPORTED_TOKENS.map((token) => (
                         <button
                           key={token.symbol}
                           type="button"
-                          onClick={() => setSelectedToken(token.symbol)}
+                          onClick={() => handleSelectToken(token.symbol)}
                           className={`p-3 rounded-2xl border text-left transition-all cursor-pointer group ${
                             selectedToken === token.symbol
                               ? 'bg-gradient-to-br from-cyan-50 via-purple-50 to-pink-50 border-purple-500 shadow-md shadow-purple-500/10 ring-2 ring-purple-400/20'
@@ -385,10 +428,40 @@ export const CreatePayment: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Field 3: Short Description */}
+                  {/* Field 3: Settlement Blockchain Network */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-purple-600" />
+                      <span>3. Settlement Blockchain Network</span> <span className="text-purple-600">*</span>
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      {Object.values(SUPPORTED_CHAINS).map((chain) => (
+                        <button
+                          key={chain.id}
+                          type="button"
+                          onClick={() => setSelectedChainId(chain.id)}
+                          className={`p-2.5 rounded-xl border text-left flex items-center gap-2 cursor-pointer transition-all ${
+                            selectedChainId === chain.id
+                              ? 'bg-purple-50 border-purple-500 text-purple-900 font-bold ring-1 ring-purple-400'
+                              : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                          }`}
+                        >
+                          <span className="text-base">{chain.icon}</span>
+                          <div className="truncate">
+                            <span className="text-xs block font-bold truncate">{chain.shortName}</span>
+                            <span className="text-[10px] text-slate-400 block font-mono">
+                              Gas: {chain.nativeCurrency.symbol}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Field 4: Short Description */}
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                      3. Short Description / Memo <span className="text-purple-600">*</span>
+                      4. Description / Item to Buy <span className="text-purple-600">*</span>
                     </label>
                     <div className="relative">
                       <FileText className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -403,12 +476,12 @@ export const CreatePayment: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Field 4 & 5: Optional Order/Reference ID & Expiration Time */}
+                  {/* Field 5 & 6: Optional Order/Reference ID & Expiration Time */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Field 4: Optional Order/Reference ID */}
+                    {/* Field 5: Optional Order/Reference ID */}
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                        4. Order / Reference ID <span className="text-slate-400 font-normal">(Optional)</span>
+                        5. Order / Reference ID <span className="text-slate-400 font-normal">(Optional)</span>
                       </label>
                       <div className="relative">
                         <Hash className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -422,10 +495,10 @@ export const CreatePayment: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Field 5: Expiration Time */}
+                    {/* Field 6: Expiration Time */}
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                        5. Expiration Time <span className="text-purple-600">*</span>
+                        6. Expiration Time <span className="text-purple-600">*</span>
                       </label>
                       <div className="relative">
                         <Clock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -484,6 +557,12 @@ export const CreatePayment: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex justify-between text-slate-500">
+                    <span>Target Network:</span>
+                    <span className="font-bold text-slate-800 font-mono">
+                      {currentChain.shortName}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-slate-500">
                     <span>IrisMe Fee ({liveEconomics.platformFee.platformFeePercent}%):</span>
                     <span className="font-semibold text-slate-600 font-mono">-${liveEconomics.platformFee.platformFeeUSD.toFixed(2)}</span>
                   </div>
@@ -532,7 +611,7 @@ export const CreatePayment: React.FC = () => {
         isOpen={isLogoGalleryOpen}
         onClose={() => setIsLogoGalleryOpen(false)}
         onSelectToken={(sym) => {
-          setSelectedToken(sym as SupportedToken);
+          handleSelectToken(sym as SupportedToken);
           setIsLogoGalleryOpen(false);
         }}
       />

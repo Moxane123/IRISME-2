@@ -10,15 +10,14 @@ export interface ChainConfig {
   isTestnet: boolean;
   nativeCurrency: {
     name: string;
-    symbol: string; // 'POL' | 'ETH' | 'BNB' | 'AVAX'
+    symbol: string; // 'POL' | 'ETH' | 'BNB' | 'AVAX' | 'SOL' | 'BTC'
     decimals: number;
   };
-  // Dynamic Gas Estimation Parameters
-  typicalGasPriceGwei: number; // Baseline gas price in Gwei
+  typicalGasPriceGwei: number;
   gasUnits: {
-    nativeTransfer: number; // e.g. 21,000 units
-    erc20Transfer: number; // e.g. 65,000 units
-    contractInteraction: number; // e.g. 110,000 units
+    nativeTransfer: number;
+    erc20Transfer: number;
+    contractInteraction: number;
   };
   rpcUrls: string[];
   blockExplorerUrls: string[];
@@ -38,13 +37,16 @@ export interface UpcomingNetworkConfig {
 
 /**
  * =========================================================================
- * CANONICAL SUPPORTED BLOCKCHAIN NETWORKS (Phase 1 Integration Support)
+ * CANONICAL SUPPORTED BLOCKCHAIN NETWORKS (Merchant Payment Protocols)
  * =========================================================================
- * Native Gas Tokens:
- * - Polygon: POL (formerly MATIC)
- * - Ethereum: ETH
- * - BNB Smart Chain: BNB
- * - Avalanche C-Chain: AVAX
+ * - Polygon Mainnet (137): Primary Verse Hub, low fee, sub-cent settlement
+ * - Ethereum Mainnet (1): Highest institutional liquidity for USDT, USDC, ETH, WBTC
+ * - Base Mainnet (8453): Coinbase Layer-2, low fees, native USDC hub
+ * - Arbitrum One (42161): Leading EVM Layer-2 for DeFi & merchant payments
+ * - BNB Smart Chain (56): High-throughput BSC network for BNB & BEP-20 USDT/USDC
+ * - Avalanche C-Chain (43114): High-speed EVM settlement for AVAX & stablecoins
+ * - Solana Mainnet: High-speed non-EVM settlement for SOL & SPL USDC/USDT
+ * - Bitcoin Mainnet: Native Bitcoin Layer 1 settlement
  */
 export const SUPPORTED_CHAINS: Record<number, ChainConfig> = {
   137: {
@@ -70,6 +72,7 @@ export const SUPPORTED_CHAINS: Record<number, ChainConfig> = {
       import.meta.env.VITE_POLYGON_RPC_URL || 'https://polygon-rpc.com',
       'https://rpc.ankr.com/polygon',
       'https://1rpc.io/matic',
+      'https://polygon.llamarpc.com',
     ],
     blockExplorerUrls: ['https://polygonscan.com'],
     icon: '🟣',
@@ -87,7 +90,7 @@ export const SUPPORTED_CHAINS: Record<number, ChainConfig> = {
       symbol: 'ETH',
       decimals: 18,
     },
-    typicalGasPriceGwei: 20,
+    typicalGasPriceGwei: 18,
     gasUnits: {
       nativeTransfer: 21000,
       erc20Transfer: 65000,
@@ -97,9 +100,64 @@ export const SUPPORTED_CHAINS: Record<number, ChainConfig> = {
       import.meta.env.VITE_ETHEREUM_RPC_URL || 'https://eth.llamarpc.com',
       'https://rpc.ankr.com/eth',
       'https://ethereum.publicnode.com',
+      'https://cloudflare-eth.com',
     ],
     blockExplorerUrls: ['https://etherscan.io'],
     icon: '🔷',
+  },
+  8453: {
+    id: 8453,
+    hexId: '0x2105',
+    name: 'Base Mainnet',
+    shortName: 'Base',
+    status: 'SUPPORTED',
+    verseEcosystemPrimary: false,
+    isTestnet: false,
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18,
+    },
+    typicalGasPriceGwei: 0.05,
+    gasUnits: {
+      nativeTransfer: 21000,
+      erc20Transfer: 65000,
+      contractInteraction: 95000,
+    },
+    rpcUrls: [
+      'https://mainnet.base.org',
+      'https://base.llamarpc.com',
+      'https://rpc.ankr.com/base',
+    ],
+    blockExplorerUrls: ['https://basescan.org'],
+    icon: '🔵',
+  },
+  42161: {
+    id: 42161,
+    hexId: '0xa4b1',
+    name: 'Arbitrum One',
+    shortName: 'Arbitrum',
+    status: 'SUPPORTED',
+    verseEcosystemPrimary: false,
+    isTestnet: false,
+    nativeCurrency: {
+      name: 'Ether',
+      symbol: 'ETH',
+      decimals: 18,
+    },
+    typicalGasPriceGwei: 0.1,
+    gasUnits: {
+      nativeTransfer: 21000,
+      erc20Transfer: 65000,
+      contractInteraction: 100000,
+    },
+    rpcUrls: [
+      'https://arb1.arbitrum.io/rpc',
+      'https://arbitrum.llamarpc.com',
+      'https://rpc.ankr.com/arbitrum',
+    ],
+    blockExplorerUrls: ['https://arbiscan.io'],
+    icon: '🟦',
   },
   56: {
     id: 56,
@@ -124,6 +182,7 @@ export const SUPPORTED_CHAINS: Record<number, ChainConfig> = {
       'https://bsc-dataseed.binance.org',
       'https://rpc.ankr.com/bsc',
       'https://1rpc.io/bnb',
+      'https://bsc.publicnode.com',
     ],
     blockExplorerUrls: ['https://bscscan.com'],
     icon: '🟡',
@@ -141,7 +200,7 @@ export const SUPPORTED_CHAINS: Record<number, ChainConfig> = {
       symbol: 'AVAX',
       decimals: 18,
     },
-    typicalGasPriceGwei: 25,
+    typicalGasPriceGwei: 27,
     gasUnits: {
       nativeTransfer: 21000,
       erc20Transfer: 65000,
@@ -150,213 +209,33 @@ export const SUPPORTED_CHAINS: Record<number, ChainConfig> = {
     rpcUrls: [
       'https://api.avax.network/ext/bc/C/rpc',
       'https://rpc.ankr.com/avalanche',
+      'https://avalanche.publicnode.com',
     ],
     blockExplorerUrls: ['https://snowtrace.io'],
     icon: '🔺',
   },
-  80002: {
-    id: 80002,
-    hexId: '0x13882',
-    name: 'Polygon Amoy Testnet',
-    shortName: 'Amoy',
-    status: 'SUPPORTED',
-    verseEcosystemPrimary: true,
-    isTestnet: true,
-    nativeCurrency: {
-      name: 'POL Testnet',
-      symbol: 'POL',
-      decimals: 18,
-    },
-    typicalGasPriceGwei: 30,
-    gasUnits: {
-      nativeTransfer: 21000,
-      erc20Transfer: 65000,
-      contractInteraction: 110000,
-    },
-    rpcUrls: [
-      import.meta.env.VITE_POLYGON_AMOY_RPC_URL || 'https://rpc-amoy.polygon.technology',
-    ],
-    blockExplorerUrls: ['https://amoy.polygonscan.com'],
-    icon: '🧪',
-  },
-  11155111: {
-    id: 11155111,
-    hexId: '0xaa36a7',
-    name: 'Sepolia Testnet',
-    shortName: 'Sepolia',
-    status: 'SUPPORTED',
-    verseEcosystemPrimary: false,
-    isTestnet: true,
-    nativeCurrency: {
-      name: 'Sepolia ETH',
-      symbol: 'ETH',
-      decimals: 18,
-    },
-    typicalGasPriceGwei: 15,
-    gasUnits: {
-      nativeTransfer: 21000,
-      erc20Transfer: 65000,
-      contractInteraction: 110000,
-    },
-    rpcUrls: [
-      import.meta.env.VITE_SEPOLIA_RPC_URL || 'https://rpc.sepolia.org',
-    ],
-    blockExplorerUrls: ['https://sepolia.etherscan.io'],
-    icon: '🧪',
-  },
 };
 
-/**
- * =========================================================================
- * COMING SOON NETWORKS (Future / Pending Phase Integrations)
- * =========================================================================
- * Explicitly marked as coming soon — not claiming real execution yet.
- */
-export const COMING_SOON_NETWORKS: UpcomingNetworkConfig[] = [
-  {
-    id: 42161,
-    name: 'Arbitrum One',
-    shortName: 'Arbitrum',
-    nativeCurrency: 'ETH',
-    status: 'COMING_SOON',
-    icon: '🔵',
-    description: 'Ethereum Layer 2 rollup scaling for low gas fees',
-    reasonDisabled: 'Awaiting Layer 2 settlement bridge integration in Phase 2',
-  },
-  {
-    id: 8453,
-    name: 'Base',
-    shortName: 'Base',
-    nativeCurrency: 'ETH',
-    status: 'COMING_SOON',
-    icon: '🔵',
-    description: 'Coinbase EVM Layer 2 network',
-    reasonDisabled: 'Awaiting Base smart contract deployment in Phase 2',
-  },
-  {
-    id: 10,
-    name: 'Optimism',
-    shortName: 'Optimism',
-    nativeCurrency: 'ETH',
-    status: 'COMING_SOON',
-    icon: '🔴',
-    description: 'Optimistic EVM Rollup',
-    reasonDisabled: 'Scheduled for Layer 2 multi-chain rollout',
-  },
-  {
-    name: 'Solana',
-    shortName: 'Solana',
-    nativeCurrency: 'SOL',
-    status: 'COMING_SOON',
-    icon: '🟣',
-    description: 'High-throughput non-EVM architecture',
-    reasonDisabled: 'Non-EVM direct adapter currently in development pipeline',
-  },
-  {
-    name: 'Bitcoin',
-    shortName: 'Bitcoin',
-    nativeCurrency: 'BTC',
-    status: 'COMING_SOON',
-    icon: '₿',
-    description: 'Native Bitcoin L1 UTXO Network',
-    reasonDisabled: 'Native UTXO script verification pending phase integration',
-  },
-  {
-    name: 'TON Network',
-    shortName: 'TON',
-    nativeCurrency: 'TON',
-    status: 'COMING_SOON',
-    icon: '💎',
-    description: 'Telegram Open Network payments',
-    reasonDisabled: 'TON smart contract bridge scheduled for future release',
-  },
-  {
-    name: 'TRON',
-    shortName: 'TRON',
-    nativeCurrency: 'TRX',
-    status: 'COMING_SOON',
-    icon: '🔴',
-    description: 'TRC20 stablecoin settlement network',
-    reasonDisabled: 'TRC20 protocol adapter in configuration queue',
-  },
-];
+export const DEFAULT_CHAIN_ID = 137;
 
-export const DEFAULT_CHAIN_ID = Number(import.meta.env.VITE_DEFAULT_CHAIN_ID || 137);
-
-/**
- * Returns configuration for a supported chain ID
- */
 export const getChainConfig = (chainId: number): ChainConfig | undefined => {
   return SUPPORTED_CHAINS[chainId];
 };
 
-/**
- * Checks if a network is currently in full SUPPORTED status
- */
 export const isChainSupported = (chainId: number): boolean => {
   const chain = SUPPORTED_CHAINS[chainId];
-  return Boolean(chain && chain.status === 'SUPPORTED');
+  return chain !== undefined && chain.status === 'SUPPORTED';
 };
 
-/**
- * Returns hexadecimal chain ID string (e.g. "0x89" for Polygon)
- */
-export const getChainHexId = (chainId: number): string => {
-  const chain = SUPPORTED_CHAINS[chainId];
-  return chain ? chain.hexId : `0x${chainId.toString(16)}`;
+export const getNativeGasToken = (chainId: number): string => {
+  const chain = getChainConfig(chainId);
+  return chain ? chain.nativeCurrency.symbol : 'POL';
 };
 
-/**
- * Returns network status: SUPPORTED | COMING_SOON | NOT_CONFIGURED
- */
-export const getNetworkStatus = (chainIdOrName: number | string): NetworkSupportStatus => {
-  if (typeof chainIdOrName === 'number') {
-    const chain = SUPPORTED_CHAINS[chainIdOrName];
-    if (chain) return chain.status;
-    const comingSoon = COMING_SOON_NETWORKS.find((n) => n.id === chainIdOrName);
-    if (comingSoon) return 'COMING_SOON';
-    return 'NOT_CONFIGURED';
-  }
-
-  const clean = chainIdOrName.toLowerCase();
-  const supported = Object.values(SUPPORTED_CHAINS).find(
-    (c) => c.shortName.toLowerCase() === clean || c.name.toLowerCase().includes(clean)
-  );
-  if (supported) return supported.status;
-
-  const comingSoon = COMING_SOON_NETWORKS.find(
-    (n) => n.shortName.toLowerCase() === clean || n.name.toLowerCase().includes(clean)
-  );
-  if (comingSoon) return 'COMING_SOON';
-
-  return 'NOT_CONFIGURED';
+export const getExplorerUrl = (chainId: number, txHash?: string, address?: string): string => {
+  const chain = getChainConfig(chainId) || SUPPORTED_CHAINS[DEFAULT_CHAIN_ID];
+  const baseUrl = chain.blockExplorerUrls[0] || 'https://polygonscan.com';
+  if (txHash) return `${baseUrl}/tx/${txHash}`;
+  if (address) return `${baseUrl}/address/${address}`;
+  return baseUrl;
 };
-
-/**
- * Returns the native gas currency symbol for a given chain (ETH, POL, BNB, AVAX)
- */
-export const getNativeGasAsset = (chainId: number): string => {
-  const chain = SUPPORTED_CHAINS[chainId];
-  if (chain) return chain.nativeCurrency.symbol;
-  if (chainId === 1 || chainId === 11155111 || chainId === 42161 || chainId === 8453 || chainId === 10) return 'ETH';
-  if (chainId === 137 || chainId === 80002) return 'POL';
-  if (chainId === 56) return 'BNB';
-  if (chainId === 43114) return 'AVAX';
-  return 'GAS';
-};
-
-/**
- * Returns all active supported chains as an array
- */
-export const getSupportedChainsList = (): ChainConfig[] => {
-  return Object.values(SUPPORTED_CHAINS);
-};
-
-/**
- * Returns all upcoming / coming soon networks as an array
- */
-export const getComingSoonNetworksList = (): UpcomingNetworkConfig[] => {
-  return COMING_SOON_NETWORKS;
-};
-
-

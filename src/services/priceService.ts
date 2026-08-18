@@ -15,7 +15,7 @@ export const INITIAL_REALTIME_PRICES: PriceMap = {
   SOL: { symbol: 'SOL', name: 'Solana', priceUSD: 184.2, change24h: 4.12, lastUpdated: Date.now() },
   BNB: { symbol: 'BNB', name: 'BNB', priceUSD: 645.8, change24h: 1.05, lastUpdated: Date.now() },
   TRX: { symbol: 'TRX', name: 'TRON', priceUSD: 0.245, change24h: 0.65, lastUpdated: Date.now() },
-  VERSE: { symbol: 'VERSE', name: 'Verse', priceUSD: 0.00034, change24h: 5.4, lastUpdated: Date.now() },
+  VERSE: { symbol: 'VERSE', name: 'Verse', priceUSD: 0.0000176, change24h: 3.2, lastUpdated: Date.now() },
   USDT: { symbol: 'USDT', name: 'Tether USD', priceUSD: 1.0, change24h: 0.01, lastUpdated: Date.now() },
   USDC: { symbol: 'USDC', name: 'USD Coin', priceUSD: 1.0, change24h: 0.0, lastUpdated: Date.now() },
   MATIC: { symbol: 'MATIC', name: 'Polygon POL', priceUSD: 0.442, change24h: -1.2, lastUpdated: Date.now() },
@@ -27,7 +27,7 @@ export const INITIAL_REALTIME_PRICES: PriceMap = {
 export class PriceService {
   private static cachedPrices: PriceMap = { ...INITIAL_REALTIME_PRICES };
   private static lastFetchTime: number = 0;
-  private static CACHE_TTL_MS: number = 20_000; // 20s cache
+  private static CACHE_TTL_MS: number = 15_000; // 15s cache
   private static listeners: Set<(prices: PriceMap) => void> = new Set();
 
   /**
@@ -56,10 +56,38 @@ export class PriceService {
     }
 
     try {
-      // 2. Direct Binance public price tickers
-      const binanceRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbols=["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","TRXUSDT","POLUSDT","AVAXUSDT"]', {
-        signal: AbortSignal.timeout(4000),
-      });
+      // 2. Fetch live real-time VERSE price from DexScreener using verified contract
+      const dexRes = await fetch(
+        'https://api.dexscreener.com/latest/dex/tokens/0x249ca82617ec3dfb2589c4c17ab7ec9765350a18,0xc708d6f2153933daa50b2d0758955be0a93a8fec',
+        { signal: AbortSignal.timeout(4000) }
+      );
+      if (dexRes.ok) {
+        const dexData = await dexRes.json();
+        if (dexData.pairs && Array.isArray(dexData.pairs) && dexData.pairs.length > 0) {
+          const mainPair = dexData.pairs[0];
+          const price = parseFloat(mainPair.priceUsd);
+          const change = parseFloat(mainPair.priceChange?.h24 || '0');
+          if (price > 0) {
+            this.cachedPrices['VERSE'] = {
+              symbol: 'VERSE',
+              name: 'Verse (Bitcoin.com)',
+              priceUSD: price,
+              change24h: change,
+              lastUpdated: Date.now(),
+            };
+          }
+        }
+      }
+    } catch {
+      // Fallback
+    }
+
+    try {
+      // 3. Direct Binance public price tickers
+      const binanceRes = await fetch(
+        'https://api.binance.com/api/v3/ticker/24hr?symbols=["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","TRXUSDT","POLUSDT","AVAXUSDT"]',
+        { signal: AbortSignal.timeout(4000) }
+      );
       if (binanceRes.ok) {
         const tickers: any[] = await binanceRes.json();
         tickers.forEach((t) => {
@@ -105,9 +133,13 @@ export class PriceService {
       return 1.0;
     }
     if (normalized === 'VERSE') {
-      return 0.00034;
+      return 0.0000176;
     }
     return 1.0;
+  }
+
+  public static getVersePrice(): number {
+    return this.getPrice('VERSE');
   }
 
   public static getPriceObject(symbol: string): CryptoPrice {

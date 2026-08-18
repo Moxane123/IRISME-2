@@ -8,6 +8,11 @@ import {
   BlockchainVerificationReport,
   VerificationTestScenario,
   VerificationAuditLog,
+  SettlementRecord,
+  MerchantBalanceSummary,
+  SupportedToken,
+  InAppPaymentNotification,
+  EssentialPaymentEventType,
 } from '../types';
 
 export interface CampaignValidationResult {
@@ -215,6 +220,67 @@ export class ApiService {
     }
   }
 
+  /**
+   * Request Refund for an eligible payment
+   */
+  static async requestRefund(
+    paymentId: string,
+    reason?: string,
+    requesterWallet?: string
+  ): Promise<{ success: boolean; payment?: Payment; error?: string }> {
+    try {
+      const res = await fetch(`/api/payments/${encodeURIComponent(paymentId)}/refund/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, requesterWallet }),
+      });
+      const data = await res.json();
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to submit refund request' };
+    }
+  }
+
+  /**
+   * Execute Full Refund (Separate On-Chain Reverse Transfer)
+   */
+  static async executeRefund(
+    paymentId: string,
+    data: { refundTxHash: string; note?: string }
+  ): Promise<{ success: boolean; payment?: Payment; error?: string }> {
+    try {
+      const res = await fetch(`/api/payments/${encodeURIComponent(paymentId)}/refund/execute`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      return result;
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to execute refund' };
+    }
+  }
+
+  /**
+   * Reject Refund Request
+   */
+  static async rejectRefund(
+    paymentId: string,
+    reason?: string
+  ): Promise<{ success: boolean; payment?: Payment; error?: string }> {
+    try {
+      const res = await fetch(`/api/payments/${encodeURIComponent(paymentId)}/refund/reject`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ reason }),
+      });
+      const result = await res.json();
+      return result;
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to reject refund' };
+    }
+  }
+
   // ==========================================
   // CAMPAIGNS API
   // ==========================================
@@ -237,7 +303,7 @@ export class ApiService {
     try {
       const res = await fetch('/api/campaigns', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getAuthHeaders(),
         body: JSON.stringify(campaign),
       });
       if (!res.ok) throw new Error('Failed to create campaign');
@@ -256,6 +322,7 @@ export class ApiService {
     try {
       const res = await fetch(`/api/campaigns/${campaignId}/toggle`, {
         method: 'POST',
+        headers: this.getAuthHeaders(),
       });
       if (!res.ok) throw new Error('Failed to toggle campaign');
       const data = await res.json();
@@ -328,7 +395,7 @@ export class ApiService {
     try {
       const res = await fetch(`/api/loyalty/merchant/${merchantId}/goal`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getAuthHeaders(),
         body: JSON.stringify(goal),
       });
       if (!res.ok) throw new Error('Failed to update loyalty goal');
@@ -506,6 +573,70 @@ export class ApiService {
   }
 
   /**
+   * Get Merchant Settlement Balance
+   */
+  static async getMerchantSettlementBalance(): Promise<MerchantBalanceSummary | null> {
+    try {
+      const res = await fetch('/api/merchants/me/settlements/balance', {
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error('Failed to fetch settlement balance');
+      const data = await res.json();
+      return data.balance || null;
+    } catch (err) {
+      console.warn('API getMerchantSettlementBalance fallback:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Get Merchant Settlement History
+   */
+  static async getMerchantSettlements(): Promise<SettlementRecord[]> {
+    try {
+      const res = await fetch('/api/merchants/me/settlements', {
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error('Failed to fetch settlements');
+      const data = await res.json();
+      return data.settlements || [];
+    } catch (err) {
+      console.warn('API getMerchantSettlements fallback:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Request Settlement / Withdrawal to Verified Wallet
+   */
+  static async requestSettlementWithdrawal(params: {
+    amountUSD: number;
+    tokenSymbol?: SupportedToken;
+    destinationAddress?: string;
+    chainId?: number;
+    note?: string;
+  }): Promise<{ success: boolean; settlement?: SettlementRecord; newAvailableBalanceUSD?: number; error?: string }> {
+    try {
+      const res = await fetch('/api/merchants/me/settlements/withdraw', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(params),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        return { success: false, error: data.error || 'Withdrawal could not be completed.' };
+      }
+      return {
+        success: true,
+        settlement: data.settlement,
+        newAvailableBalanceUSD: data.newAvailableBalanceUSD,
+      };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Network error executing withdrawal.' };
+    }
+  }
+
+  /**
    * Record payment checkout server-side to update loyalty counts and campaign participation
    */
   static async recordPaymentCheckout(params: {
@@ -523,6 +654,129 @@ export class ApiService {
       });
     } catch (err) {
       console.warn('API recordPaymentCheckout fallback:', err);
+    }
+  }
+
+  // ==========================================
+  // IN-APP ESSENTIAL NOTIFICATIONS API
+  // Supported Events:
+  // - payment_received
+  // - payment_confirmed
+  // - payment_failed
+  // - payment_expired
+  // - settlement_completed
+  // ==========================================
+
+  /**
+   * Record initial payment detection on-chain
+   */
+  static async recordPaymentDetection(params: {
+    paymentId: string;
+    txHash?: string;
+    payerAddress?: string;
+    tokenSymbol?: SupportedToken;
+    tokenAmount?: number;
+  }): Promise<void> {
+    try {
+      await fetch('/api/payments/record-detection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+    } catch (err) {
+      console.warn('API recordPaymentDetection fallback:', err);
+    }
+  }
+
+  /**
+   * Get In-App Essential Payment Notifications
+   */
+  static async getInAppNotifications(merchantId?: string): Promise<{ notifications: InAppPaymentNotification[]; unreadCount: number }> {
+    try {
+      const url = merchantId ? `/api/notifications?merchantId=${encodeURIComponent(merchantId)}` : '/api/notifications';
+      const res = await fetch(url, {
+        headers: this.getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error('Failed to fetch in-app notifications');
+      const data = await res.json();
+      return {
+        notifications: data.notifications || [],
+        unreadCount: data.unreadCount || 0,
+      };
+    } catch (err) {
+      console.warn('API getInAppNotifications fallback:', err);
+      return { notifications: [], unreadCount: 0 };
+    }
+  }
+
+  /**
+   * Mark an in-app notification as read
+   */
+  static async markNotificationAsRead(id: string): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/notifications/${encodeURIComponent(id)}/read`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+      });
+      return res.ok;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /**
+   * Mark all in-app notifications as read
+   */
+  static async markAllNotificationsAsRead(merchantId?: string): Promise<boolean> {
+    try {
+      const res = await fetch('/api/notifications/mark-all-read', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ merchantId }),
+      });
+      return res.ok;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /**
+   * Clear in-app notifications
+   */
+  static async clearNotifications(merchantId?: string): Promise<boolean> {
+    try {
+      const res = await fetch('/api/notifications/clear', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ merchantId }),
+      });
+      return res.ok;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /**
+   * Secondary Channel: Dispatch / Log email notification receipt for essential payment event
+   */
+  static async dispatchSecondaryEmailNotification(params: {
+    eventType: EssentialPaymentEventType;
+    recipientEmail?: string;
+    invoiceNumber?: string;
+    amountUSD?: number;
+    tokenSymbol?: SupportedToken;
+    txHash?: string;
+  }): Promise<{ success: boolean; dispatchedEmail?: any; message?: string }> {
+    try {
+      const res = await fetch('/api/notifications/dispatch-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      const data = await res.json();
+      return data;
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Email dispatch simulated locally.' };
     }
   }
 }

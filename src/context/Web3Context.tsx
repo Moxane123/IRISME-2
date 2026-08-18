@@ -25,6 +25,7 @@ interface Web3ContextType {
   isAvailable: boolean;
   isConnected: boolean;
   isConnecting: boolean;
+  isLoadingBalances: boolean;
   address: string;
   chainId: number;
   currentChain?: ChainConfig;
@@ -63,34 +64,38 @@ const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
 const WEB3_STORAGE_KEY = 'irisme_web3_state_v3';
 
+// Empty real balance baseline - Zero mock numbers
+const INITIAL_EMPTY_BALANCES: WalletBalances = {
+  VERSE: 0,
+  USDT: 0,
+  USDC: 0,
+  DAI: 0,
+  ETH: 0,
+  WBTC: 0,
+  MATIC: 0,
+  POL: 0,
+  BNB: 0,
+  AVAX: 0,
+  SOL: 0,
+  BTC: 0,
+  TRX: 0,
+};
+
 export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isAvailable, setIsAvailable] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
+  const [isLoadingBalances, setIsLoadingBalances] = useState<boolean>(false);
   const [address, setAddress] = useState<string>('');
   const [chainId, setChainId] = useState<number>(DEFAULT_CHAIN_ID);
   const [targetChainId, setTargetChainId] = useState<number>(DEFAULT_CHAIN_ID);
-  const [walletMode, setWalletMode] = useState<'injected' | 'custom' | 'demo'>('demo');
+  const [walletMode, setWalletMode] = useState<'injected' | 'custom' | 'demo'>('injected');
   const [error, setError] = useState<Web3Error | null>(null);
-
-  const [balances, setBalances] = useState<WalletBalances>({
-    VERSE: 25000,
-    USDT: 500.0,
-    USDC: 500.0,
-    DAI: 200.0,
-    ETH: 0.85,
-    WBTC: 0.025,
-    MATIC: 150.0,
-    BNB: 1.5,
-    AVAX: 8.0,
-    SOL: 2.4,
-    BTC: 0.025,
-    TRX: 450.0,
-  });
+  const [balances, setBalances] = useState<WalletBalances>(INITIAL_EMPTY_BALANCES);
 
   const getNativeGasBalance = useCallback((queryChainId: number): number => {
-    if (queryChainId === 137 || queryChainId === 80002) {
-      return balances.MATIC ?? 0;
+    if (queryChainId === 137) {
+      return balances.POL || balances.MATIC || 0;
     } else if (queryChainId === 56) {
       return balances.BNB ?? 0;
     } else if (queryChainId === 43114) {
@@ -116,7 +121,10 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setAddress(parsed.address);
           setIsConnected(true);
           setWalletMode(parsed.walletMode || 'injected');
-          if (parsed.chainId) setChainId(parsed.chainId);
+          if (parsed.chainId) {
+            setChainId(parsed.chainId);
+            setTargetChainId(parsed.chainId);
+          }
         }
       } catch {}
     }
@@ -124,14 +132,15 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Current chain config
   const currentChain = getChainConfig(chainId);
-  // Wrong network detection: if connected to injected wallet and chain is not in supported chains or differs from target
+  // Wrong network detection: if connected to injected wallet and chain differs from target
   const isWrongNetwork = isConnected && walletMode === 'injected' && (!isChainSupported(chainId) || chainId !== targetChainId);
 
-  // Refresh balances whenever address or chainId changes
+  // Refresh real balances whenever address or chainId changes
   const refreshBalances = useCallback(async () => {
     if (!address) return;
+    setIsLoadingBalances(true);
     try {
-      if (walletMode === 'injected' || (walletMode === 'custom' && ethers.isAddress(address))) {
+      if (ethers.isAddress(address)) {
         const liveBalances = await BlockchainService.fetchBalances(address, chainId);
         setBalances((prev) => ({
           ...prev,
@@ -139,9 +148,11 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }));
       }
     } catch (e) {
-      console.warn('Could not refresh on-chain balances:', e);
+      console.warn('Could not refresh real on-chain balances:', e);
+    } finally {
+      setIsLoadingBalances(false);
     }
-  }, [address, chainId, walletMode]);
+  }, [address, chainId]);
 
   useEffect(() => {
     if (isConnected && address) {
@@ -155,18 +166,17 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const handleAccountsChanged = (accounts: string[]) => {
       if (!accounts || accounts.length === 0) {
-        // User disconnected wallet in extension
         setIsConnected(false);
         setAddress('');
+        setBalances(INITIAL_EMPTY_BALANCES);
         localStorage.removeItem(WEB3_STORAGE_KEY);
       } else {
         const newAddress = ethers.getAddress(accounts[0]);
         setAddress(newAddress);
         setIsConnected(true);
-        setWalletMode('injected');
         localStorage.setItem(
           WEB3_STORAGE_KEY,
-          JSON.stringify({ address: newAddress, chainId, walletMode: 'injected', isConnected: true })
+          JSON.stringify({ address: newAddress, isConnected: true, chainId, walletMode: 'injected' })
         );
       }
     };
@@ -174,11 +184,13 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const handleChainChanged = (hexChainId: string) => {
       const newChainId = parseInt(hexChainId, 16);
       setChainId(newChainId);
+      setTargetChainId(newChainId);
     };
 
     const handleDisconnect = () => {
       setIsConnected(false);
       setAddress('');
+      setBalances(INITIAL_EMPTY_BALANCES);
       localStorage.removeItem(WEB3_STORAGE_KEY);
     };
 
@@ -186,22 +198,20 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
       window.ethereum.on('accountsChanged', handleAccountsChanged);
       window.ethereum.on('chainChanged', handleChainChanged);
       window.ethereum.on('disconnect', handleDisconnect);
-    } catch (err) {
-      console.warn('Failed to attach Ethereum event listeners:', err);
-    }
+    } catch {}
 
     return () => {
-      if (window.ethereum?.removeListener) {
-        try {
+      try {
+        if (window.ethereum?.removeListener) {
           window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
           window.ethereum.removeListener('chainChanged', handleChainChanged);
           window.ethereum.removeListener('disconnect', handleDisconnect);
-        } catch {}
-      }
+        }
+      } catch {}
     };
   }, [chainId]);
 
-  // Connect Injected EVM Wallet (MetaMask, Rabby, Coinbase, etc.)
+  // Connect via Injected Provider (MetaMask, Rabby, Coinbase Wallet, Verse)
   const connectInjected = async (): Promise<boolean> => {
     setIsConnecting(true);
     setError(null);
@@ -210,6 +220,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const result = await BlockchainService.connectWallet();
       setAddress(result.address);
       setChainId(result.chainId);
+      setTargetChainId(result.chainId);
       setIsConnected(true);
       setWalletMode('injected');
 
@@ -217,68 +228,72 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
         WEB3_STORAGE_KEY,
         JSON.stringify({
           address: result.address,
+          isConnected: true,
           chainId: result.chainId,
           walletMode: 'injected',
-          isConnected: true,
         })
       );
 
-      setIsConnecting(false);
+      // Fetch real balances immediately
+      const realBalances = await BlockchainService.fetchBalances(result.address, result.chainId);
+      setBalances(realBalances);
+
       return true;
     } catch (err: any) {
       const parsed = parseWeb3Error(err);
       setError(parsed);
-      setIsConnecting(false);
       return false;
+    } finally {
+      setIsConnecting(false);
     }
   };
 
-  // Connect Demo or Custom Address
+  // Connect with custom address
   const connectDemo = (customAddress?: string) => {
-    let finalAddress: string;
-    if (customAddress && ethers.isAddress(customAddress)) {
-      finalAddress = ethers.getAddress(customAddress);
-    } else {
-      // Generate clean random session address for demo testing
-      finalAddress = ethers.Wallet.createRandom().address;
-    }
+    const addr = customAddress && ethers.isAddress(customAddress)
+      ? ethers.getAddress(customAddress)
+      : '0x71C8705a2B88e6082570084d5d996979d45e9B42';
 
-    const mode = customAddress && ethers.isAddress(customAddress) ? 'custom' : 'demo';
-    setAddress(finalAddress);
+    setAddress(addr);
+    setIsConnected(true);
+    setWalletMode('custom');
     setChainId(DEFAULT_CHAIN_ID);
     setTargetChainId(DEFAULT_CHAIN_ID);
-    setIsConnected(true);
-    setWalletMode(mode);
-    setError(null);
 
     localStorage.setItem(
       WEB3_STORAGE_KEY,
       JSON.stringify({
-        address: finalAddress,
-        chainId: DEFAULT_CHAIN_ID,
-        walletMode: mode,
+        address: addr,
         isConnected: true,
+        chainId: DEFAULT_CHAIN_ID,
+        walletMode: 'custom',
       })
     );
+
+    // Fetch real balances for custom address
+    BlockchainService.fetchBalances(addr, DEFAULT_CHAIN_ID).then((b) => {
+      setBalances(b);
+    });
   };
 
-  // Disconnect
+  // Disconnect wallet
   const disconnect = () => {
     setIsConnected(false);
     setAddress('');
-    setError(null);
+    setBalances(INITIAL_EMPTY_BALANCES);
     localStorage.removeItem(WEB3_STORAGE_KEY);
+    setError(null);
   };
 
-  // Switch network
-  const switchTargetNetwork = async (targetId: number): Promise<boolean> => {
-    setTargetChainId(targetId);
+  // Switch target network
+  const switchTargetNetwork = async (newTargetChainId: number): Promise<boolean> => {
     setError(null);
+    setTargetChainId(newTargetChainId);
 
-    if (walletMode === 'injected' && isAvailable) {
+    if (walletMode === 'injected' && isConnected) {
       try {
-        await BlockchainService.switchNetwork(targetId);
-        setChainId(targetId);
+        await BlockchainService.switchNetwork(newTargetChainId);
+        setChainId(newTargetChainId);
         return true;
       } catch (err: any) {
         const parsed = parseWeb3Error(err);
@@ -286,18 +301,18 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return false;
       }
     } else {
-      // In demo mode simply switch the state
-      setChainId(targetId);
+      setChainId(newTargetChainId);
       return true;
     }
   };
 
-  // Execute payment transaction with strict lifecycle verification
+  // Execute payment on chain
   const executePaymentOnChain = async (params: {
     merchantAddress: string;
     token: SupportedToken;
     tokenAmount: number;
     paymentId: string;
+    chainId?: number;
     onStatusUpdate?: (status: TxLifecycleStatus, txHash?: string) => void;
   }): Promise<{
     success: boolean;
@@ -305,76 +320,38 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
     receipt?: SubmittedTransactionReceipt;
     isRealOnChain: boolean;
   }> => {
-    const { merchantAddress, token, tokenAmount, onStatusUpdate } = params;
-    setError(null);
+    const activeChainId = params.chainId || chainId || DEFAULT_CHAIN_ID;
 
     if (!isConnected || !address) {
-      throw new Error('Please connect your Web3 wallet first.');
+      throw new Error('Please connect your Web3 wallet before executing payment.');
     }
 
-    // If connected via real injected wallet, execute real on-chain transaction
-    if (walletMode === 'injected' && isAvailable) {
-      try {
-        onStatusUpdate?.('preparing');
+    if (walletMode === 'injected') {
+      // 1. Prepare transaction
+      params.onStatusUpdate?.('preparing');
+      const prepared = await BlockchainService.preparePayment({
+        fromAddress: address,
+        merchantSettlementAddress: params.merchantAddress,
+        token: params.token,
+        tokenAmount: params.tokenAmount,
+        chainId: activeChainId,
+      });
 
-        // Prepare transaction (gas estimation & balance check)
-        const prepared: PreparedTransaction = await BlockchainService.preparePayment({
-          fromAddress: address,
-          merchantSettlementAddress: merchantAddress,
-          token,
-          tokenAmount,
-          chainId,
-        });
+      // 2. Submit transaction to user's wallet
+      const receipt = await BlockchainService.submitPayment(prepared, params.onStatusUpdate);
 
-        if (!prepared.hasSufficientBalance) {
-          throw new Error(
-            `Insufficient ${token} balance (${prepared.userBalance} ${token} available, ${tokenAmount} required).`
-          );
-        }
-
-        // Submit transaction via injected signer
-        const receipt = await BlockchainService.submitPayment(prepared, onStatusUpdate);
-
-        // Refresh balances after confirmed block
-        refreshBalances();
-
-        return {
-          success: true,
-          txHash: receipt.txHash,
-          receipt,
-          isRealOnChain: true,
-        };
-      } catch (err: any) {
-        const parsed = parseWeb3Error(err);
-        setError(parsed);
-        onStatusUpdate?.('failed');
-        throw parsed;
-      }
-    } else {
-      // Demo / Simulator Mode (clearly distinguished)
-      onStatusUpdate?.('preparing');
-      await new Promise((r) => setTimeout(r, 600));
-
-      onStatusUpdate?.('awaiting_signature');
-      await new Promise((r) => setTimeout(r, 800));
-
-      const mockTxHash =
-        '0x' +
-        Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-
-      onStatusUpdate?.('submitted', mockTxHash);
-      await new Promise((r) => setTimeout(r, 900));
-
-      onStatusUpdate?.('confirming', mockTxHash);
-      await new Promise((r) => setTimeout(r, 1200));
-
-      onStatusUpdate?.('confirmed', mockTxHash);
+      // Refresh balances after successful transfer
+      refreshBalances();
 
       return {
         success: true,
-        txHash: mockTxHash,
-        isRealOnChain: false,
+        txHash: receipt.txHash,
+        receipt,
+        isRealOnChain: true,
       };
+    } else {
+      // Fallback
+      throw new Error('Please connect a live Web3 wallet to authorize transaction.');
     }
   };
 
@@ -384,6 +361,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isAvailable,
         isConnected,
         isConnecting,
+        isLoadingBalances,
         address,
         chainId,
         currentChain,

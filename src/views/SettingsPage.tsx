@@ -55,6 +55,8 @@ export const SettingsPage: React.FC = () => {
   const [description, setDescription] = useState(merchantProfile.description || '');
   const [website, setWebsite] = useState(merchantProfile.website || '');
   const [supportEmail, setSupportEmail] = useState(merchantProfile.supportEmail || merchantProfile.email || '');
+  const [notificationEmail, setNotificationEmail] = useState(merchantProfile.notificationEmail || merchantProfile.email || '');
+  const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState<boolean>(merchantProfile.emailNotificationsEnabled ?? true);
   const [phone, setPhone] = useState(merchantProfile.phone || '');
   const [businessAddress, setBusinessAddress] = useState(merchantProfile.businessAddress || '');
   const [taxId, setTaxId] = useState(merchantProfile.taxId || '');
@@ -160,6 +162,8 @@ export const SettingsPage: React.FC = () => {
         description: description.trim(),
         website: website.trim(),
         supportEmail: supportEmail.trim(),
+        notificationEmail: notificationEmail.trim(),
+        emailNotificationsEnabled,
         phone: phone.trim(),
         businessAddress: businessAddress.trim(),
         taxId: taxId.trim(),
@@ -567,6 +571,82 @@ export const SettingsPage: React.FC = () => {
                     className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/20 text-slate-900 focus:outline-none"
                   />
                 </div>
+              </div>
+            </Card>
+
+            {/* Essential Event Notifications (In-App Priority & Secondary Email) */}
+            <Card variant="default" className="p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <Bell className="w-5 h-5 text-[#FF0080]" />
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-base">Essential Payment Notifications</h3>
+                    <p className="text-[11px] text-slate-500">
+                      In-app status updates are primary. Secondary email notifications can be dispatched for core events.
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">
+                  MVP 5 Events Only
+                </span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs space-y-2">
+                <div className="text-[11px] font-semibold text-slate-700">Supported Essential Events:</div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[10px] font-medium">
+                  <span className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-center">
+                    Payment received
+                  </span>
+                  <span className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-center">
+                    Payment confirmed
+                  </span>
+                  <span className="p-1.5 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-center">
+                    Payment failed
+                  </span>
+                  <span className="p-1.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-center">
+                    Payment expired
+                  </span>
+                  <span className="p-1.5 rounded-lg bg-purple-50 text-purple-700 border border-purple-200 text-center">
+                    Settlement completed
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={emailNotificationsEnabled}
+                    onChange={(e) => setEmailNotificationsEnabled(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-900 block">
+                      Enable Secondary Email Channel
+                    </span>
+                    <span className="text-[11px] text-slate-500 block">
+                      Dispatch immediate email receipt logs alongside in-app notifications whenever essential blockchain events occur.
+                    </span>
+                  </div>
+                </label>
+
+                {emailNotificationsEnabled && (
+                  <div className="pl-7 pt-1">
+                    <label className="block text-xs text-slate-700 font-bold uppercase tracking-wider mb-1 font-mono">
+                      Notification Dispatch Email Address
+                    </label>
+                    <div className="relative max-w-md">
+                      <Mail className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+                      <input
+                        type="email"
+                        value={notificationEmail}
+                        onChange={(e) => setNotificationEmail(e.target.value)}
+                        placeholder="merchant-alerts@yourstore.com"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white border border-slate-200 focus:border-[#7C3AED] focus:ring-2 focus:ring-[#7C3AED]/20 text-slate-900 focus:outline-none text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </Card>
           </div>

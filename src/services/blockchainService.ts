@@ -21,6 +21,8 @@ import {
 declare global {
   interface Window {
     ethereum?: any;
+    solana?: any;
+    phantom?: any;
   }
 }
 
@@ -32,7 +34,7 @@ export const parseWeb3Error = (error: any): Web3Error => {
     return { message: 'An unknown blockchain error occurred', isUserRejection: false };
   }
 
-  // User rejected / cancelled
+  // User rejected / cancelled in wallet extension
   if (
     error.code === 4001 ||
     error.code === 'ACTION_REJECTED' ||
@@ -43,7 +45,7 @@ export const parseWeb3Error = (error: any): Web3Error => {
   ) {
     return {
       code: 4001,
-      message: 'Transaction or connection request was rejected in your wallet.',
+      message: 'Transaction or connection authorization was rejected in your wallet.',
       isUserRejection: true,
       raw: error,
     };
@@ -77,7 +79,7 @@ export const parseWeb3Error = (error: any): Web3Error => {
   if (error.code === 4902) {
     return {
       code: 4902,
-      message: 'Network is not yet added to your wallet.',
+      message: 'Network is not yet added to your wallet. Please approve adding the network.',
       isUserRejection: false,
       raw: error,
     };
@@ -87,7 +89,7 @@ export const parseWeb3Error = (error: any): Web3Error => {
   const msg = error.reason || error.shortMessage || error.message || 'Blockchain operation failed';
   return {
     code: error.code,
-    message: msg.length > 120 ? `${msg.slice(0, 120)}...` : msg,
+    message: msg.length > 140 ? `${msg.slice(0, 140)}...` : msg,
     isUserRejection: false,
     raw: error,
   };
@@ -124,7 +126,7 @@ export class BlockchainService {
   }
 
   /**
-   * Requests connection to the injected EVM wallet (MetaMask, Rabby, Coinbase, etc.)
+   * Requests connection to the injected EVM wallet (MetaMask, Rabby, Coinbase, Verse, etc.)
    */
   public static async connectWallet(): Promise<{
     address: string;
@@ -133,7 +135,7 @@ export class BlockchainService {
     isSupported: boolean;
   }> {
     if (!this.isEthereumAvailable()) {
-      throw new Error('No EVM wallet detected. Please install MetaMask, Rabby, or a Web3 browser wallet.');
+      throw new Error('No Web3 wallet detected. Please install MetaMask, Rabby, Coinbase Wallet, or Verse.');
     }
 
     const provider = this.getBrowserProvider();
@@ -162,28 +164,28 @@ export class BlockchainService {
       return {
         address,
         chainId,
-        networkName: chainConfig ? chainConfig.name : `Chain ID ${chainId}`,
+        networkName: chainConfig?.name || `Chain ${chainId}`,
         isSupported: Boolean(chainConfig),
       };
-    } catch (err: any) {
-      throw parseWeb3Error(err);
+    } catch (error: any) {
+      throw parseWeb3Error(error);
     }
   }
 
   /**
-   * Switches the active network in the connected wallet
+   * Switches the active network in the injected wallet (EIP-3326)
    */
   public static async switchNetwork(targetChainId: number): Promise<void> {
     if (!this.isEthereumAvailable()) {
-      throw new Error('No EVM wallet detected.');
+      throw new Error('Web3 wallet is not available');
     }
 
     const chainConfig = getChainConfig(targetChainId);
     if (!chainConfig) {
-      throw new Error(`Chain ID ${targetChainId} is not configured.`);
+      throw new Error(`Chain ID ${targetChainId} is not supported`);
     }
 
-    const hexChainId = chainConfig.hexId;
+    const hexChainId = chainConfig.hexId || `0x${targetChainId.toString(16)}`;
 
     try {
       await window.ethereum.request({
@@ -191,7 +193,7 @@ export class BlockchainService {
         params: [{ chainId: hexChainId }],
       });
     } catch (switchError: any) {
-      // Code 4902 means the chain hasn't been added to MetaMask/wallet yet
+      // Error code 4902 means the chain has not been added to the wallet yet
       if (switchError.code === 4902 || switchError.data?.originalError?.code === 4902) {
         try {
           await window.ethereum.request({
@@ -216,7 +218,8 @@ export class BlockchainService {
   }
 
   /**
-   * Queries native and ERC-20 balances for an address on a specified chain
+   * Queries real on-chain native and token balances for an address on a specified chain.
+   * Uses live RPC and verified contract calls. No mock data.
    */
   public static async fetchBalances(
     address: string,
@@ -230,37 +233,43 @@ export class BlockchainService {
       ETH: 0,
       WBTC: 0,
       MATIC: 0,
+      POL: 0,
       BNB: 0,
       AVAX: 0,
+      SOL: 0,
+      BTC: 0,
+      TRX: 0,
     };
 
     if (!address || !ethers.isAddress(address)) {
       return balances;
     }
 
-    // Use browser provider or fallback JSON-RPC provider
     const provider: ethers.Provider = this.getBrowserProvider() || this.getFallbackProvider(chainId);
 
     try {
-      // 1. Fetch Native balance according to target chain (POL on Polygon, ETH on Ethereum, BNB on BSC, AVAX on Avalanche)
+      // 1. Fetch Real Native Balance on active chain
       try {
         const rawNative = await provider.getBalance(address);
-        const formattedNative = Number(parseFloat(formatUnits(rawNative, 18)).toFixed(4));
-        if (chainId === 137 || chainId === 80002) {
-          balances.MATIC = formattedNative;
+        const formattedNative = parseFloat(formatUnits(rawNative, 18));
+        const cleanNative = Number(formattedNative.toFixed(6));
+
+        if (chainId === 137) {
+          balances.POL = cleanNative;
+          balances.MATIC = cleanNative;
+        } else if (chainId === 1 || chainId === 8453 || chainId === 42161) {
+          balances.ETH = cleanNative;
         } else if (chainId === 56) {
-          balances.BNB = formattedNative;
+          balances.BNB = cleanNative;
         } else if (chainId === 43114) {
-          balances.AVAX = formattedNative;
-        } else {
-          balances.ETH = formattedNative;
+          balances.AVAX = cleanNative;
         }
       } catch (err) {
-        console.warn('Native balance query failed:', err);
+        console.warn('Native balance live query error:', err);
       }
 
-      // 2. Fetch ERC-20 Token balances
-      const tokenSymbols: SupportedToken[] = ['VERSE', 'USDT', 'USDC', 'DAI', 'WBTC', 'ETH', 'MATIC', 'BNB', 'AVAX'];
+      // 2. Fetch Real ERC-20 / BEP-20 Token Balances on active chain
+      const tokenSymbols: SupportedToken[] = ['USDT', 'USDC', 'VERSE', 'WBTC', 'DAI', 'ETH', 'POL', 'BNB', 'AVAX'];
 
       await Promise.allSettled(
         tokenSymbols.map(async (symbol) => {
@@ -277,15 +286,63 @@ export class BlockchainService {
             const decimals = config?.decimals || 18;
             const formatted = parseFloat(formatUnits(rawBalance, decimals));
 
-            // Set balance
-            balances[symbol] = Number(formatted.toFixed(symbol === 'VERSE' ? 0 : 4));
-          } catch {
-            // Ignore individual token contract lookup errors on unsupported chains
+            if (formatted > 0) {
+              balances[symbol] = Number(formatted.toFixed(symbol === 'VERSE' ? 2 : 6));
+            }
+          } catch (tokenErr) {
+            // Token contract lookup error
           }
         })
       );
+
+      // 3. Scan other EVM chains in parallel if needed to give user a complete portfolio view
+      try {
+        const otherChainIds = [137, 1, 8453, 42161, 56, 43114].filter((id) => id !== chainId);
+        await Promise.allSettled(
+          otherChainIds.map(async (otherId) => {
+            const otherProvider = this.getFallbackProvider(otherId);
+            // Query native gas asset if not already filled
+            if (otherId === 137 && balances.POL === 0) {
+              const b = await otherProvider.getBalance(address);
+              const val = Number(parseFloat(formatUnits(b, 18)).toFixed(6));
+              if (val > 0) {
+                balances.POL = val;
+                balances.MATIC = val;
+              }
+            } else if (otherId === 1 && balances.ETH === 0) {
+              const b = await otherProvider.getBalance(address);
+              const val = Number(parseFloat(formatUnits(b, 18)).toFixed(6));
+              if (val > 0) balances.ETH = val;
+            } else if (otherId === 56 && balances.BNB === 0) {
+              const b = await otherProvider.getBalance(address);
+              const val = Number(parseFloat(formatUnits(b, 18)).toFixed(6));
+              if (val > 0) balances.BNB = val;
+            } else if (otherId === 43114 && balances.AVAX === 0) {
+              const b = await otherProvider.getBalance(address);
+              const val = Number(parseFloat(formatUnits(b, 18)).toFixed(6));
+              if (val > 0) balances.AVAX = val;
+            }
+
+            // Query USDT & USDC on other chains if currently 0
+            for (const sym of ['USDT', 'USDC', 'VERSE', 'WBTC'] as SupportedToken[]) {
+              if (balances[sym] === 0) {
+                const tAddr = getTokenAddress(sym, otherId);
+                if (tAddr && ethers.isAddress(tAddr)) {
+                  const contract = new Contract(tAddr, ERC20_ABI, otherProvider);
+                  const raw = await contract.balanceOf(address);
+                  const dec = getTokenDecimals(sym);
+                  const fmt = parseFloat(formatUnits(raw, dec));
+                  if (fmt > 0) {
+                    balances[sym] = Number(fmt.toFixed(sym === 'VERSE' ? 2 : 4));
+                  }
+                }
+              }
+            }
+          })
+        );
+      } catch {}
     } catch (e) {
-      console.warn('Balance lookup general error:', e);
+      console.warn('Real on-chain balance query error:', e);
     }
 
     return balances;
@@ -312,8 +369,11 @@ export class BlockchainService {
 
     const tokenConfig = TOKEN_CONFIGS[token];
     const isNative =
-      (token === 'MATIC' && (chainId === 137 || chainId === 80002)) ||
-      (token === 'ETH' && (chainId === 1 || chainId === 11155111));
+      (token === 'POL' && chainId === 137) ||
+      (token === 'MATIC' && chainId === 137) ||
+      (token === 'ETH' && (chainId === 1 || chainId === 8453 || chainId === 42161)) ||
+      (token === 'BNB' && chainId === 56) ||
+      (token === 'AVAX' && chainId === 43114);
 
     const decimals = getTokenDecimals(token);
     const tokenAddress = getTokenAddress(token, chainId);
@@ -322,7 +382,7 @@ export class BlockchainService {
     const safeAmountStr = tokenAmount.toFixed(Math.min(decimals, 8));
     const rawAmount = parseUnits(safeAmountStr, decimals);
 
-    // Balance verification
+    // Live balance verification
     const currentBalances = await this.fetchBalances(fromAddress, chainId);
     const userBalance = currentBalances[token] || 0;
     const hasSufficientBalance = userBalance >= tokenAmount;
@@ -350,7 +410,6 @@ export class BlockchainService {
         });
       }
     } catch (gasErr) {
-      // Fallback gas limit
       estimatedGasLimit = isNative ? 21000n : 65000n;
     }
 
@@ -378,7 +437,7 @@ export class BlockchainService {
     onStatusChange?: (status: TxLifecycleStatus, txHash?: string) => void
   ): Promise<SubmittedTransactionReceipt> {
     if (!this.isEthereumAvailable()) {
-      throw new Error('No EVM wallet detected. Please connect MetaMask, Rabby, or an injected Web3 wallet.');
+      throw new Error('No Web3 wallet detected. Please connect MetaMask, Rabby, Coinbase Wallet, or Verse.');
     }
 
     const provider = this.getBrowserProvider();
@@ -403,7 +462,7 @@ export class BlockchainService {
           gasLimit: prepared.estimatedGasLimit ? (prepared.estimatedGasLimit * 12n) / 10n : undefined,
         });
       } else {
-        // ERC-20 Token Transfer (VERSE, USDT, USDC, DAI, etc.)
+        // ERC-20 Token Transfer (USDT, USDC, VERSE, DAI, WBTC, etc.)
         if (!prepared.tokenAddress) {
           throw new Error(`Token contract for ${prepared.token} is not configured on chain ${currentChainId}.`);
         }
@@ -453,7 +512,7 @@ export class BlockchainService {
   }
 
   /**
-   * Transfers ERC-20 token (such as VERSE) or native currency
+   * Transfers ERC-20 token (such as VERSE, USDT, USDC) or native currency
    */
   public static async transferToken(params: {
     tokenSymbol: SupportedToken;

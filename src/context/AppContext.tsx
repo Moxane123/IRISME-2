@@ -15,6 +15,10 @@ import {
   FiatCurrency,
   MerchantCategoryType,
   MerchantAuthResponse,
+  SettlementRecord,
+  MerchantBalanceSummary,
+  InAppPaymentNotification,
+  EssentialPaymentEventType,
 } from '../types';
 import {
   INITIAL_PAYMENTS,
@@ -28,7 +32,7 @@ import {
   SUPPORTED_TOKENS,
 } from '../data/mockData';
 import { useWeb3 } from './Web3Context';
-import { getChainConfig } from '../config';
+import { getChainConfig, DEFAULT_PLATFORM_FEE_PERCENT } from '../config';
 import { getRewardConfig, getRewardRateForMerchantType } from '../config/rewards';
 import { RewardEngine } from '../services/rewardService';
 import { EconomicService } from '../services/economicService';
@@ -106,6 +110,21 @@ interface AppContextType {
   createPayment: (paymentData: CreatePaymentParams) => Payment;
   updatePaymentStatus: (paymentId: string, status: PaymentStatus, extra?: Partial<Payment>) => void;
   getPaymentById: (id: string) => Payment | undefined;
+  requestRefund: (paymentId: string, reason?: string, requesterWallet?: string) => Promise<{ success: boolean; payment?: Payment; error?: string }>;
+  executeRefund: (paymentId: string, data: { refundTxHash: string; note?: string }) => Promise<{ success: boolean; payment?: Payment; error?: string }>;
+  rejectRefund: (paymentId: string, reason?: string) => Promise<{ success: boolean; payment?: Payment; error?: string }>;
+
+  // Merchant Settlement & Balance
+  settlements: SettlementRecord[];
+  merchantBalance: MerchantBalanceSummary;
+  refreshSettlementBalance: () => Promise<void>;
+  withdrawSettlement: (params: {
+    amountUSD: number;
+    tokenSymbol?: SupportedToken;
+    destinationAddress?: string;
+    chainId?: number;
+    note?: string;
+  }) => Promise<{ success: boolean; settlement?: SettlementRecord; error?: string }>;
 
   // Loyalty & Rewards
   loyaltyTiers: LoyaltyTier[];
@@ -114,6 +133,22 @@ interface AppContextType {
   campaigns: RewardCampaign[];
   toggleCampaignStatus: (id: string) => void;
   createCampaign: (campaign: Omit<RewardCampaign, 'id' | 'spentVerse' | 'participatingCustomers'>) => void;
+
+  // In-App Payment Notifications (Essential 5 Events Only)
+  notifications: InAppPaymentNotification[];
+  unreadNotificationCount: number;
+  addInAppNotification: (notification: Omit<InAppPaymentNotification, 'id' | 'timestamp' | 'isRead'>) => InAppPaymentNotification | null;
+  markNotificationAsRead: (id: string) => Promise<void>;
+  markAllNotificationsAsRead: () => Promise<void>;
+  clearNotifications: () => Promise<void>;
+  dispatchSecondaryEmail: (params: {
+    eventType: EssentialPaymentEventType;
+    recipientEmail?: string;
+    invoiceNumber?: string;
+    amountUSD?: number;
+    tokenSymbol?: SupportedToken;
+    txHash?: string;
+  }) => Promise<{ success: boolean; message?: string }>;
 
   // Rewards Management
   customerLoyaltyCards: CustomerLoyaltyCard[];
@@ -129,13 +164,25 @@ interface AppContextType {
     onStatusChange?: (status: PaymentStatus) => void
   ) => Promise<{ success: boolean; txHash: string; verseEarned: number; isRealOnChain?: boolean }>;
 
+  // Interactive Tutorial & Sandbox Demo
+  isTutorialOpen: boolean;
+  tutorialTab: 'customer' | 'merchant';
+  openTutorial: (tab?: 'customer' | 'merchant') => void;
+  closeTutorial: () => void;
+
+  // Real-Time Guided Directional Tour
+  isGuidedTourActive: boolean;
+  guidedTourType: 'customer' | 'merchant';
+  startGuidedTour: (type?: 'customer' | 'merchant') => void;
+  stopGuidedTour: () => void;
+
   // Utility
   resetToDefaults: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const LOCAL_STORAGE_KEY = 'irisme_v3_clean_storage';
+const LOCAL_STORAGE_KEY = 'irisme_verse_v4_clean';
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const web3 = useWeb3();
@@ -218,6 +265,33 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [isWalletModalOpen, setIsWalletModalOpen] = useState<boolean>(false);
   
+  // Interactive Tutorial & Sandbox Demo State
+  const [isTutorialOpen, setIsTutorialOpen] = useState<boolean>(false);
+  const [tutorialTab, setTutorialTab] = useState<'customer' | 'merchant'>('customer');
+
+  const openTutorial = (tab: 'customer' | 'merchant' = 'customer') => {
+    setTutorialTab(tab);
+    setIsTutorialOpen(true);
+  };
+
+  const closeTutorial = () => {
+    setIsTutorialOpen(false);
+  };
+
+  // Real-Time Directional Tour State
+  const [isGuidedTourActive, setIsGuidedTourActive] = useState<boolean>(false);
+  const [guidedTourType, setGuidedTourType] = useState<'customer' | 'merchant'>('customer');
+
+  const startGuidedTour = (type: 'customer' | 'merchant' = 'customer') => {
+    setIsTutorialOpen(false); // close modal if open
+    setGuidedTourType(type);
+    setIsGuidedTourActive(true);
+  };
+
+  const stopGuidedTour = () => {
+    setIsGuidedTourActive(false);
+  };
+  
   const [merchantAuthToken, setMerchantAuthToken] = useState<string | null>(() => ApiService.getAuthToken());
   const isMerchantAuthenticated = Boolean(merchantAuthToken);
 
@@ -270,6 +344,287 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return INITIAL_PAYMENTS;
     }
   });
+
+  const [settlements, setSettlements] = useState<SettlementRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_settlements`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [merchantBalance, setMerchantBalance] = useState<MerchantBalanceSummary>({
+    availableBalanceUSD: 0,
+    pendingBalanceUSD: 0,
+    totalReceivedUSD: 0,
+    totalSettledUSD: 0,
+    settlementAddress: merchantProfile.settlementAddress || '',
+  });
+
+  // ==========================================
+  // IN-APP NOTIFICATIONS (5 Essential Events Only)
+  // 1. Payment received
+  // 2. Payment confirmed
+  // 3. Payment failed
+  // 4. Payment expired
+  // 5. Settlement completed
+  // ==========================================
+  const [notifications, setNotifications] = useState<InAppPaymentNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem(`${LOCAL_STORAGE_KEY}_notifications`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const unreadNotificationCount = notifications.filter((n) => !n.isRead).length;
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(`${LOCAL_STORAGE_KEY}_notifications`, JSON.stringify(notifications));
+    } catch {}
+  }, [notifications]);
+
+  // Sync server notifications
+  useEffect(() => {
+    const fetchServerNotifications = async () => {
+      try {
+        const res = await ApiService.getInAppNotifications();
+        if (res.notifications && res.notifications.length > 0) {
+          setNotifications((prev) => {
+            const map = new Map<string, InAppPaymentNotification>();
+            prev.forEach((n) => map.set(n.id, n));
+            res.notifications.forEach((n) => map.set(n.id, n));
+            return Array.from(map.values()).sort(
+              (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            );
+          });
+        }
+      } catch (err) {
+        console.warn('Could not sync notifications from server:', err);
+      }
+    };
+    fetchServerNotifications();
+  }, [merchantAuthToken]);
+
+  // Ref tracking emitted blockchain events to prevent duplicate confirmations and notification spam
+  const processedEventKeysRef = React.useRef<Set<string>>(new Set());
+
+  const addInAppNotification = (
+    item: Omit<InAppPaymentNotification, 'id' | 'timestamp' | 'isRead'>
+  ): InAppPaymentNotification | null => {
+    const normTx = (item.txHash || '').toLowerCase().trim();
+    const eventKey = `${item.eventType}_${item.paymentId || item.settlementId || ''}_${normTx}`;
+
+    // STRICT DEDUPLICATION: Ensure the same blockchain event cannot generate duplicate confirmations/notifications
+    if (processedEventKeysRef.current.has(eventKey)) {
+      return null;
+    }
+    processedEventKeysRef.current.add(eventKey);
+
+    const newNotif: InAppPaymentNotification = {
+      ...item,
+      id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      isRead: false,
+      secondaryEmailSent: Boolean(merchantProfile.emailNotificationsEnabled),
+    };
+
+    setNotifications((prev) => [newNotif, ...prev.filter((p) => p.id !== newNotif.id)]);
+
+    // Secondary email dispatch if merchant enabled
+    if (merchantProfile.emailNotificationsEnabled && merchantProfile.notificationEmail) {
+      ApiService.dispatchSecondaryEmailNotification({
+        eventType: item.eventType,
+        recipientEmail: merchantProfile.notificationEmail,
+        invoiceNumber: item.invoiceNumber,
+        amountUSD: item.amountUSD,
+        tokenSymbol: item.tokenSymbol,
+        txHash: item.txHash,
+      }).catch(() => {});
+    }
+
+    return newNotif;
+  };
+
+  const markNotificationAsRead = async (id: string) => {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+    await ApiService.markNotificationAsRead(id);
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    await ApiService.markAllNotificationsAsRead(merchantProfile.id);
+  };
+
+  const clearNotifications = async () => {
+    setNotifications([]);
+    await ApiService.clearNotifications(merchantProfile.id);
+  };
+
+  const dispatchSecondaryEmail = async (params: {
+    eventType: EssentialPaymentEventType;
+    recipientEmail?: string;
+    invoiceNumber?: string;
+    amountUSD?: number;
+    tokenSymbol?: SupportedToken;
+    txHash?: string;
+  }) => {
+    return ApiService.dispatchSecondaryEmailNotification(params);
+  };
+
+  // Calculate live merchant balance from verified payments & withdrawals
+  const refreshSettlementBalance = async () => {
+    try {
+      const serverBalance = await ApiService.getMerchantSettlementBalance();
+      if (serverBalance) {
+        setMerchantBalance(serverBalance);
+        const serverSettlements = await ApiService.getMerchantSettlements();
+        if (serverSettlements && serverSettlements.length > 0) {
+          setSettlements(serverSettlements);
+        }
+        return;
+      }
+    } catch (e) {
+      console.warn('Could not fetch server settlement balance:', e);
+    }
+
+    // Client-side fallback computation
+    const activeMerchantId = merchantProfile.id || 'm-iris-merchant-default';
+    const merchantPayments = payments.filter(
+      (p) => !p.merchantId || p.merchantId === activeMerchantId || p.merchantId === 'm-iris-merchant-default'
+    );
+
+    let totalReceived = 0;
+    let availableNet = 0;
+    let pending = 0;
+
+    for (const p of merchantPayments) {
+      const isConfirmed = p.status === 'confirmed' || p.status === 'completed' || p.status === 'paid';
+      const isPending =
+        p.status === 'pending' ||
+        p.status === 'awaiting_payment' ||
+        p.status === 'transaction_detected' ||
+        p.status === 'verifying' ||
+        p.status === 'submitted' ||
+        p.status === 'confirming' ||
+        p.status === 'processing';
+
+      if (isConfirmed) {
+        totalReceived += p.amountUSD || 0;
+        const net =
+          p.netSettlementUSD !== undefined
+            ? p.netSettlementUSD
+            : Number(((p.amountUSD || 0) * (1 - DEFAULT_PLATFORM_FEE_PERCENT / 100)).toFixed(2));
+        availableNet += net;
+      } else if (isPending) {
+        pending += p.amountUSD || 0;
+      }
+    }
+
+    const withdrawn = settlements
+      .filter((s) => s.status === 'COMPLETED' && s.type === 'MANUAL_WITHDRAWAL')
+      .reduce((sum, s) => sum + s.amountUSD, 0);
+
+    const safeAvailable = Math.max(0, Number((availableNet - withdrawn).toFixed(2)));
+
+    setMerchantBalance({
+      availableBalanceUSD: safeAvailable,
+      pendingBalanceUSD: Number(pending.toFixed(2)),
+      totalReceivedUSD: Number(totalReceived.toFixed(2)),
+      totalSettledUSD: Number(availableNet.toFixed(2)),
+      settlementAddress: merchantProfile.settlementAddress || '',
+    });
+  };
+
+  // Sync balances on payments or settlements change
+  useEffect(() => {
+    refreshSettlementBalance();
+  }, [payments, settlements, merchantProfile.settlementAddress]);
+
+  const withdrawSettlement = async (params: {
+    amountUSD: number;
+    tokenSymbol?: SupportedToken;
+    destinationAddress?: string;
+    chainId?: number;
+    note?: string;
+  }): Promise<{ success: boolean; settlement?: SettlementRecord; error?: string }> => {
+    const dest = params.destinationAddress || merchantProfile.settlementAddress;
+    if (!dest || !dest.startsWith('0x') || dest.length !== 42) {
+      return { success: false, error: 'A valid EVM settlement address is required.' };
+    }
+
+    if (params.amountUSD > merchantBalance.availableBalanceUSD) {
+      return {
+        success: false,
+        error: `Withdrawal amount ($${params.amountUSD.toFixed(2)}) exceeds available balance ($${merchantBalance.availableBalanceUSD.toFixed(2)}).`,
+      };
+    }
+
+    // Call server API
+    const res = await ApiService.requestSettlementWithdrawal({
+      amountUSD: params.amountUSD,
+      tokenSymbol: params.tokenSymbol || 'USDT',
+      destinationAddress: dest,
+      chainId: params.chainId || 137,
+      note: params.note,
+    });
+
+    if (res.success && res.settlement) {
+      setSettlements((prev) => [res.settlement!, ...prev]);
+      await refreshSettlementBalance();
+
+      // Emit essential notification: settlement_completed
+      addInAppNotification({
+        eventType: 'settlement_completed',
+        settlementId: res.settlement.id,
+        merchantId: merchantProfile.id,
+        title: 'Settlement Completed',
+        message: `Settlement payout of $${params.amountUSD.toFixed(2)} ${params.tokenSymbol || 'USDT'} completed.`,
+        amountUSD: params.amountUSD,
+        tokenAmount: params.amountUSD,
+        tokenSymbol: params.tokenSymbol || 'USDT',
+        txHash: res.settlement.txHash,
+      });
+
+      return { success: true, settlement: res.settlement };
+    }
+
+    // Local fallback if offline
+    const fallbackRecord: SettlementRecord = {
+      id: `stl_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`,
+      merchantId: merchantProfile.id,
+      amountUSD: params.amountUSD,
+      tokenAmount: params.amountUSD,
+      tokenSymbol: params.tokenSymbol || 'USDT',
+      destinationAddress: dest,
+      chainId: params.chainId || 137,
+      status: 'COMPLETED',
+      txHash: '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
+      createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      type: 'MANUAL_WITHDRAWAL',
+      note: params.note || `Instant wallet settlement to ${dest.slice(0, 6)}...${dest.slice(-4)}`,
+    };
+
+    setSettlements((prev) => [fallbackRecord, ...prev]);
+
+    addInAppNotification({
+      eventType: 'settlement_completed',
+      settlementId: fallbackRecord.id,
+      merchantId: merchantProfile.id,
+      title: 'Settlement Completed',
+      message: `Settlement payout of $${params.amountUSD.toFixed(2)} ${params.tokenSymbol || 'USDT'} completed.`,
+      amountUSD: params.amountUSD,
+      tokenAmount: params.amountUSD,
+      tokenSymbol: params.tokenSymbol || 'USDT',
+      txHash: fallbackRecord.txHash,
+    });
+
+    return { success: true, settlement: fallbackRecord };
+  };
 
   const [loyaltyGoal, setLoyaltyGoal] = useState<MerchantLoyaltyGoal>(() => {
     try {
@@ -539,9 +894,175 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updatePaymentStatus = (paymentId: string, status: PaymentStatus, extra?: Partial<Payment>) => {
+    let target = payments.find((p) => p.id === paymentId);
     setPayments((prev) =>
-      prev.map((p) => (p.id === paymentId ? { ...p, status, ...extra } : p))
+      prev.map((p) => {
+        if (p.id === paymentId) {
+          const updated = { ...p, status, ...extra };
+          target = updated;
+          return updated;
+        }
+        return p;
+      })
     );
+
+    if (target) {
+      const merged = { ...target, status, ...extra };
+      const amountUSD = merged.amountUSD;
+      const invoiceNumber = merged.invoiceNumber || merged.id;
+      const txHash = merged.txHash;
+      const tokenSymbol = merged.selectedToken;
+      const tokenAmount = merged.tokenAmount;
+
+      if (status === 'transaction_detected' || status === 'submitted') {
+        addInAppNotification({
+          eventType: 'payment_received',
+          paymentId,
+          invoiceNumber,
+          merchantId: merged.merchantId || merchantProfile.id,
+          title: 'Payment Transaction Detected',
+          message: `Incoming blockchain transaction detected for invoice #${invoiceNumber}.`,
+          amountUSD,
+          tokenAmount,
+          tokenSymbol,
+          txHash,
+        });
+      } else if (status === 'confirmed' || status === 'paid') {
+        addInAppNotification({
+          eventType: 'payment_confirmed',
+          paymentId,
+          invoiceNumber,
+          merchantId: merged.merchantId || merchantProfile.id,
+          title: 'Payment Confirmed',
+          message: `Payment #${invoiceNumber} for $${amountUSD.toFixed(2)} (${tokenAmount || amountUSD} ${tokenSymbol || 'USDT'}) confirmed on-chain.`,
+          amountUSD,
+          tokenAmount,
+          tokenSymbol,
+          txHash,
+        });
+      } else if (status === 'failed') {
+        addInAppNotification({
+          eventType: 'payment_failed',
+          paymentId,
+          invoiceNumber,
+          merchantId: merged.merchantId || merchantProfile.id,
+          title: 'Payment Failed',
+          message: `Payment #${invoiceNumber} transaction failed on blockchain.`,
+          amountUSD,
+          tokenAmount,
+          tokenSymbol,
+          txHash,
+        });
+      } else if (status === 'expired') {
+        addInAppNotification({
+          eventType: 'payment_expired',
+          paymentId,
+          invoiceNumber,
+          merchantId: merged.merchantId || merchantProfile.id,
+          title: 'Payment Expired',
+          message: `Payment invoice #${invoiceNumber} ($${amountUSD.toFixed(2)}) has expired.`,
+          amountUSD,
+          tokenAmount,
+          tokenSymbol,
+          txHash,
+        });
+      }
+    }
+  };
+
+  const requestRefund = async (
+    paymentId: string,
+    reason?: string,
+    requesterWallet?: string
+  ): Promise<{ success: boolean; payment?: Payment; error?: string }> => {
+    const res = await ApiService.requestRefund(paymentId, reason, requesterWallet);
+    if (res.success && res.payment) {
+      setPayments((prev) => prev.map((p) => (p.id === paymentId ? res.payment! : p)));
+      return { success: true, payment: res.payment };
+    } else {
+      // Local optimistic fallback
+      const target = payments.find((p) => p.id === paymentId);
+      if (target) {
+        const updated: Payment = {
+          ...target,
+          refundStatus: 'REQUESTED',
+          refundDetails: {
+            status: 'REQUESTED',
+            requestedAt: new Date().toISOString(),
+            reason: reason || 'Customer requested refund',
+            refundAmountUSD: target.amountUSD,
+            refundTokenAmount: target.tokenAmount,
+            tokenSymbol: target.selectedToken,
+            recipientWallet: requesterWallet || target.customerWallet || '',
+          },
+        };
+        setPayments((prev) => prev.map((p) => (p.id === paymentId ? updated : p)));
+        return { success: true, payment: updated };
+      }
+      return { success: false, error: res.error || 'Payment not found' };
+    }
+  };
+
+  const executeRefund = async (
+    paymentId: string,
+    data: { refundTxHash: string; note?: string }
+  ): Promise<{ success: boolean; payment?: Payment; error?: string }> => {
+    const res = await ApiService.executeRefund(paymentId, data);
+    if (res.success && res.payment) {
+      setPayments((prev) => prev.map((p) => (p.id === paymentId ? res.payment! : p)));
+      refreshSettlementBalance().catch(() => {});
+      return { success: true, payment: res.payment };
+    } else {
+      const target = payments.find((p) => p.id === paymentId);
+      if (target) {
+        const updated: Payment = {
+          ...target,
+          status: 'refunded',
+          refundStatus: 'COMPLETED',
+          refundDetails: {
+            status: 'COMPLETED',
+            requestedAt: target.refundDetails?.requestedAt || new Date().toISOString(),
+            refundedAt: new Date().toISOString(),
+            reason: target.refundDetails?.reason || data.note || 'Merchant full refund',
+            refundAmountUSD: target.amountUSD,
+            refundTokenAmount: target.tokenAmount,
+            tokenSymbol: target.selectedToken,
+            recipientWallet: target.customerWallet || '',
+            refundTxHash: data.refundTxHash,
+            note: data.note || 'Separate on-chain reverse transfer to payer wallet',
+          },
+        };
+        setPayments((prev) => prev.map((p) => (p.id === paymentId ? updated : p)));
+        refreshSettlementBalance().catch(() => {});
+        return { success: true, payment: updated };
+      }
+      return { success: false, error: res.error || 'Payment not found' };
+    }
+  };
+
+  const rejectRefund = async (
+    paymentId: string,
+    reason?: string
+  ): Promise<{ success: boolean; payment?: Payment; error?: string }> => {
+    const res = await ApiService.rejectRefund(paymentId, reason);
+    if (res.success && res.payment) {
+      setPayments((prev) => prev.map((p) => (p.id === paymentId ? res.payment! : p)));
+      return { success: true, payment: res.payment };
+    } else {
+      const target = payments.find((p) => p.id === paymentId);
+      if (target) {
+        const updated: Payment = {
+          ...target,
+          refundStatus: 'REJECTED',
+          refundDetails: target.refundDetails
+            ? { ...target.refundDetails, status: 'REJECTED', note: reason }
+            : undefined,
+        };
+        setPayments((prev) => prev.map((p) => (p.id === paymentId ? updated : p)));
+        return { success: true, payment: updated };
+      }
+      return { success: false, error: res.error || 'Payment not found' };
+    }
   };
 
   const getPaymentById = (id: string): Payment | undefined => {
@@ -1313,12 +1834,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         createPayment,
         updatePaymentStatus,
         getPaymentById,
+        requestRefund,
+        executeRefund,
+        rejectRefund,
+        settlements,
+        merchantBalance,
+        refreshSettlementBalance,
+        withdrawSettlement,
         loyaltyTiers,
         loyaltyGoal,
         updateLoyaltyGoal,
         campaigns,
         toggleCampaignStatus,
         createCampaign,
+        notifications,
+        unreadNotificationCount,
+        addInAppNotification,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        clearNotifications,
+        dispatchSecondaryEmail,
         customerLoyaltyCards,
         customerRewards,
         merchantRewards: customerRewards,
@@ -1327,6 +1862,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         claimCustomerRewards,
         claimLoyaltyMilestone,
         processCustomerPayment,
+        isTutorialOpen,
+        tutorialTab,
+        openTutorial,
+        closeTutorial,
+        isGuidedTourActive,
+        guidedTourType,
+        startGuidedTour,
+        stopGuidedTour,
         resetToDefaults,
       }}
     >

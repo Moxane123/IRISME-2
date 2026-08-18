@@ -11,7 +11,11 @@ export type PaymentStatus =
   | 'expired'
   | 'failed'
   | 'pending'
-  | 'completed';
+  | 'completed'
+  | 'refunded'
+  | 'refund_requested'
+  | 'refund_processing'
+  | 'refund_rejected';
 
 export type MerchantCategoryType = 'irisme_merchant' | 'external_merchant';
 
@@ -191,6 +195,22 @@ export interface TokenOption {
   isStablecoin?: boolean;
 }
 
+export type RefundStatus = 'NONE' | 'REQUESTED' | 'PROCESSING' | 'COMPLETED' | 'REJECTED';
+
+export interface RefundDetails {
+  status: RefundStatus;
+  requestedAt?: string;
+  reason?: string;
+  refundAmountUSD: number;
+  refundTokenAmount: number;
+  tokenSymbol: SupportedToken;
+  recipientWallet: string;
+  refundTxHash?: string;
+  refundedAt?: string;
+  refundBlockNumber?: number;
+  note?: string;
+}
+
 /**
  * Multi-chain Payment with Strict Economic Concept Separation:
  * 1. Blockchain Network Fee (Gas in native token)
@@ -244,6 +264,9 @@ export interface Payment {
   blockNumber?: number;
   isRealOnChain?: boolean;
   receiptUrl?: string;
+  // Secondary MVP Refund fields (Explicit separate on-chain reverse transaction)
+  refundStatus?: RefundStatus;
+  refundDetails?: RefundDetails;
 }
 
 export interface MerchantLoyaltyGoal {
@@ -405,8 +428,43 @@ export interface MerchantProfile {
   isOnboarded: boolean;
   apiKey?: string;
   apiWebhookUrl?: string;
+  emailNotificationsEnabled?: boolean;
+  notificationEmail?: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+/**
+ * MVP Essential Payment Notification Events:
+ * - Payment received
+ * - Payment confirmed
+ * - Payment failed
+ * - Payment expired
+ * - Settlement completed
+ */
+export type EssentialPaymentEventType =
+  | 'payment_received'
+  | 'payment_confirmed'
+  | 'payment_failed'
+  | 'payment_expired'
+  | 'settlement_completed';
+
+export interface InAppPaymentNotification {
+  id: string;
+  eventType: EssentialPaymentEventType;
+  paymentId?: string;
+  invoiceNumber?: string;
+  settlementId?: string;
+  merchantId?: string;
+  title: string;
+  message: string;
+  amountUSD?: number;
+  tokenAmount?: number;
+  tokenSymbol?: SupportedToken;
+  txHash?: string;
+  timestamp: string;
+  isRead: boolean;
+  secondaryEmailSent?: boolean;
 }
 
 export interface MerchantAuthResponse {

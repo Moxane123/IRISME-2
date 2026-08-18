@@ -86,6 +86,30 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
           dot: 'bg-slate-400',
           label: 'Expired',
         };
+      case 'refunded':
+        return {
+          bg: 'bg-slate-100 text-slate-800 border-slate-300 font-semibold',
+          dot: 'bg-slate-500',
+          label: 'Refunded (On-Chain)',
+        };
+      case 'refund_requested':
+        return {
+          bg: 'bg-amber-50 text-amber-900 border-amber-300 font-semibold',
+          dot: 'bg-amber-500 animate-pulse',
+          label: 'Refund Requested',
+        };
+      case 'refund_processing':
+        return {
+          bg: 'bg-indigo-50 text-indigo-900 border-indigo-300 font-semibold',
+          dot: 'bg-indigo-500 animate-pulse',
+          label: 'Refund Processing',
+        };
+      case 'refund_rejected':
+        return {
+          bg: 'bg-rose-50 text-rose-800 border-rose-300 font-semibold',
+          dot: 'bg-rose-500',
+          label: 'Refund Rejected',
+        };
       case 'failed':
       case 'reverted':
         return {

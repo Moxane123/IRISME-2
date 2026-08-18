@@ -5,7 +5,7 @@ import {
   GasEstimationResult,
   SupportedToken,
 } from '../types';
-import { getChainConfig, getSupportedAsset } from '../config';
+import { getChainConfig, isTokenConfiguredOnChain, getTokenAddress } from '../config';
 
 export interface PaymentEngineContext {
   isWalletConnected: boolean;
@@ -18,17 +18,19 @@ export interface PaymentEngineContext {
   userTokenBalance: number;
   userNativeGasBalance: number;
   gasEstimate?: GasEstimationResult;
+  isExpired?: boolean;
 }
 
 export class PaymentEngine {
   /**
-   * Validates a multi-chain payment request against all requirements:
-   * 1. Wallet connection
-   * 2. Target network alignment
-   * 3. Merchant settlement address validity
-   * 4. Token balance sufficiency
-   * 5. Native gas balance sufficiency (distinct blockchain network fee)
-   * 6. Token contract enablement on target chain
+   * Validates a multi-chain payment request against all 7 strict payment rules:
+   * 1. Wallet Connection Rule: Checks wallet presence and authorization
+   * 2. Target Network Alignment Rule: Ensures connected chain matches invoice chain
+   * 3. Merchant Settlement Address Rule: Verifies valid recipient address
+   * 4. Token Contract Availability Rule: Ensures token is configured on target chain
+   * 5. Real Token Balance Rule: Ensures connected wallet has sufficient real funds
+   * 6. Real Gas Balance Rule: Ensures connected wallet has native gas (POL, ETH, BNB, AVAX) for network fee
+   * 7. Expiration Rule: Ensures invoice is still within validity window
    */
   public static validatePayment(context: PaymentEngineContext): PaymentValidationResult {
     const {
@@ -41,6 +43,7 @@ export class PaymentEngine {
       userTokenBalance,
       userNativeGasBalance,
       gasEstimate,
+      isExpired,
     } = context;
 
     const targetChain = getChainConfig(targetChainId);
@@ -53,7 +56,33 @@ export class PaymentEngine {
     const isValidAmount = tokenAmount > 0;
     const isValidMerchantAddress = Boolean(merchantAddress && ethers.isAddress(merchantAddress));
 
-    // 1. Wallet Connection Check
+    // Rule 7: Expiration Check
+    if (isExpired) {
+      return {
+        isValid: false,
+        state: 'Failed',
+        isWalletConnected,
+        isCorrectNetwork: walletChainId === targetChainId,
+        currentChainId: walletChainId,
+        currentNetworkName,
+        targetChainId,
+        targetNetworkName,
+        hasTokenBalance: false,
+        userTokenBalance,
+        requiredTokenAmount: tokenAmount,
+        tokenSymbol: selectedToken,
+        hasGasBalance: false,
+        userGasBalance: userNativeGasBalance,
+        estimatedGasCost: 0,
+        nativeGasToken,
+        isValidMerchantAddress,
+        isValidAmount,
+        statusMessage: 'Invoice Expired',
+        detailedExplanation: 'This payment request has passed its expiration time. Please request a new invoice from the merchant.',
+      };
+    }
+
+    // Rule 1: Wallet Connection Rule
     if (!isWalletConnected) {
       return {
         isValid: false,
@@ -74,11 +103,11 @@ export class PaymentEngine {
         nativeGasToken,
         isValidMerchantAddress,
         isValidAmount,
-        statusMessage: 'Connect your Web3 wallet to review payment details and network fees.',
+        statusMessage: 'Connect your Web3 wallet to review real balances and pay.',
       };
     }
 
-    // 2. Wrong Network Detection
+    // Rule 2: Wrong Network Detection & Alignment Rule
     const isCorrectNetwork = walletChainId === targetChainId;
     if (!isCorrectNetwork) {
       const fromChainName = currentNetworkName || `Chain ID ${walletChainId}`;
@@ -102,12 +131,12 @@ export class PaymentEngine {
         nativeGasToken,
         isValidMerchantAddress,
         isValidAmount,
-        statusMessage: `Wrong Network: Wallet is connected to ${fromChainName}.`,
-        detailedExplanation: `Your wallet is currently connected to ${fromChainName}, but this payment invoice requires ${toChainName}. Please switch your wallet network to ${targetChain?.shortName || toChainName} to proceed.`,
+        statusMessage: `Switch Network: Connected to ${fromChainName}.`,
+        detailedExplanation: `Your wallet is currently on ${fromChainName}. This invoice is on ${toChainName}. Please switch your network in 1 click to proceed.`,
       };
     }
 
-    // 3. Merchant Address Validity
+    // Rule 3: Merchant Address Rule
     if (!isValidMerchantAddress) {
       return {
         isValid: false,
@@ -128,14 +157,42 @@ export class PaymentEngine {
         nativeGasToken,
         isValidMerchantAddress: false,
         isValidAmount,
-        statusMessage: 'Invalid merchant settlement address configuration.',
-        detailedExplanation: 'The merchant address for this payment is invalid or malformed. Please contact the merchant.',
+        statusMessage: 'Invalid merchant settlement address.',
+        detailedExplanation: 'The merchant recipient address is not a valid EVM address format.',
       };
     }
 
-    // 4. Token Balance Check
+    // Rule 4: Token Contract Availability on Target Chain
+    const isConfigured = isTokenConfiguredOnChain(selectedToken, targetChainId);
+    if (!isConfigured) {
+      return {
+        isValid: false,
+        state: 'Failed',
+        isWalletConnected: true,
+        isCorrectNetwork: true,
+        currentChainId: walletChainId,
+        currentNetworkName,
+        targetChainId,
+        targetNetworkName,
+        hasTokenBalance: false,
+        userTokenBalance,
+        requiredTokenAmount: tokenAmount,
+        tokenSymbol: selectedToken,
+        hasGasBalance: true,
+        userGasBalance: userNativeGasBalance,
+        estimatedGasCost: gasEstimate?.estimatedNativeGasCost || 0,
+        nativeGasToken,
+        isValidMerchantAddress: true,
+        isValidAmount,
+        statusMessage: `${selectedToken} is not available on ${targetChain?.shortName || targetNetworkName}.`,
+        detailedExplanation: `Please select another supported payment token or network for this invoice.`,
+      };
+    }
+
+    // Rule 5: Real Token Balance Rule (No Mock Data)
     const hasTokenBalance = userTokenBalance >= tokenAmount;
     if (!hasTokenBalance) {
+      const missing = (tokenAmount - userTokenBalance).toFixed(4);
       return {
         isValid: false,
         state: 'Insufficient balance',
@@ -155,12 +212,12 @@ export class PaymentEngine {
         nativeGasToken,
         isValidMerchantAddress: true,
         isValidAmount,
-        statusMessage: `Insufficient ${selectedToken} balance.`,
-        detailedExplanation: `Your wallet has ${userTokenBalance.toFixed(4)} ${selectedToken} on ${targetChain?.shortName || targetNetworkName}, but ${tokenAmount} ${selectedToken} is required for this invoice.`,
+        statusMessage: `Insufficient ${selectedToken} balance (${userTokenBalance} available, ${tokenAmount} required).`,
+        detailedExplanation: `Your wallet currently holds ${userTokenBalance} ${selectedToken} on ${targetChain?.shortName || targetNetworkName}. You need ${missing} more ${selectedToken} to complete this payment.`,
       };
     }
 
-    // 5. Native Gas Balance Check (Distinct Blockchain Network Fee)
+    // Rule 6: Real Native Gas Balance Rule
     const estimatedGasCost = gasEstimate?.estimatedNativeGasCost || 0.0001;
     const hasGasBalance = userNativeGasBalance >= estimatedGasCost;
     if (!hasGasBalance) {
@@ -183,12 +240,12 @@ export class PaymentEngine {
         nativeGasToken,
         isValidMerchantAddress: true,
         isValidAmount,
-        statusMessage: `Insufficient ${nativeGasToken} for blockchain gas fee.`,
-        detailedExplanation: `You have enough ${selectedToken} for this payment, but your wallet does not have enough ${nativeGasToken} to pay the ${targetChain?.shortName || targetNetworkName} network fee. This is a blockchain network fee, not an IrisMe fee.`,
+        statusMessage: `Insufficient ${nativeGasToken} for blockchain network gas fee.`,
+        detailedExplanation: `Your wallet has enough ${selectedToken}, but needs at least ~${estimatedGasCost.toFixed(5)} ${nativeGasToken} to cover the blockchain network gas fee on ${targetChain?.shortName || targetNetworkName}.`,
       };
     }
 
-    // All validation passed
+    // All Payment Rules Satisfied -> Ready to Authorize & Pay
     return {
       isValid: true,
       state: 'Ready',

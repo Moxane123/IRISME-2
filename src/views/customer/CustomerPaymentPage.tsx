@@ -18,6 +18,8 @@ import {
 import { GasEstimationService } from '../../services/gasEstimationService';
 import { PaymentEngine } from '../../services/paymentEngine';
 import { ApiService } from '../../services/apiService';
+import { PriceService } from '../../services/priceService';
+import { VERSE_TOKEN_ADDRESSES } from '../../config/tokens';
 import { VerificationTestSuiteModal } from '../../components/verification/VerificationTestSuiteModal';
 import {
   getChainConfig,
@@ -45,6 +47,10 @@ import {
   PlusCircle,
   ArrowUpRight,
   Hash,
+  RotateCcw,
+  Undo2,
+  Sparkles,
+  Zap,
 } from 'lucide-react';
 
 export const CustomerPaymentPage: React.FC = () => {
@@ -53,8 +59,10 @@ export const CustomerPaymentPage: React.FC = () => {
     payments,
     getPaymentById,
     processCustomerPayment,
+    requestRefund,
     merchantProfile,
     setIsWalletModalOpen,
+    openTutorial,
   } = useApp();
 
   const {
@@ -81,10 +89,23 @@ export const CustomerPaymentPage: React.FC = () => {
   });
   const [isGasEstimating, setIsGasEstimating] = useState<boolean>(false);
 
+  // Live VERSE Market Price
+  const [liveVersePrice, setLiveVersePrice] = useState<number>(() => PriceService.getPrice('VERSE') || 0.0000176);
+
+  useEffect(() => {
+    const fetchVerse = async () => {
+      const p = await PriceService.getVersePrice();
+      if (p > 0) setLiveVersePrice(p);
+    };
+    fetchVerse();
+    const interval = setInterval(fetchVerse, 15000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Engine Lifecycle State
   const [engineState, setEngineState] = useState<PaymentEngineState>(() => {
     if (!payment) return 'Ready';
-    if (payment.status === 'confirmed' || payment.status === 'completed' || payment.status === 'paid') return 'Confirmed';
+    if (payment.status === 'confirmed' || payment.status === 'completed' || payment.status === 'paid' || payment.status === 'refunded') return 'Confirmed';
     if (payment.status === 'failed') return 'Failed';
     return 'Ready';
   });
@@ -102,6 +123,12 @@ export const CustomerPaymentPage: React.FC = () => {
   // Expiration countdown
   const [timeLeftStr, setTimeLeftStr] = useState<string>('');
   const [isExpired, setIsExpired] = useState<boolean>(false);
+
+  // Refund Dialog State
+  const [isRefundModalOpen, setIsRefundModalOpen] = useState<boolean>(false);
+  const [refundReasonInput, setRefundReasonInput] = useState<string>('');
+  const [refundSubmitting, setRefundSubmitting] = useState<boolean>(false);
+  const [refundFeedback, setRefundFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Dynamic Gas Estimation Routine
   const runGasEstimation = useCallback(async () => {
@@ -148,6 +175,15 @@ export const CustomerPaymentPage: React.FC = () => {
 
   // Token amount calculation
   const calculatedTokenAmount = payment?.tokenAmount ?? payment?.amountUSD ?? 0;
+
+  // VERSE Rewards live computation
+  const effectiveCashbackPercent = payment?.cashbackPercent ?? merchantProfile.baseRewardPercent ?? 3.0;
+  const calculatedVerseReward =
+    payment?.verseEarned ||
+    (payment
+      ? Math.round((payment.amountUSD * (effectiveCashbackPercent / 100)) / (liveVersePrice > 0 ? liveVersePrice : 0.0000176))
+      : 0);
+  const calculatedRewardUSDValue = (calculatedVerseReward * (liveVersePrice > 0 ? liveVersePrice : 0.0000176)).toFixed(4);
 
   // Compute balances
   const userTokenBalance = balances[selectedToken] ?? 0;
@@ -323,6 +359,13 @@ export const CustomerPaymentPage: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => openTutorial('customer')}
+            className="text-xs text-purple-700 hover:text-purple-900 flex items-center gap-1 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-lg border border-purple-200 shadow-xs cursor-pointer active:scale-95 transition-all font-semibold"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-600 animate-pulse" />
+            <span>Tutorial</span>
+          </button>
+          <button
             onClick={() => setIsVerificationModalOpen(true)}
             className="text-xs text-iris-700 hover:text-iris-900 flex items-center gap-1 bg-iris-50 hover:bg-iris-100 px-2.5 py-1 rounded-lg border border-iris-200 shadow-xs cursor-pointer active:scale-95 transition-all font-semibold"
           >
@@ -353,8 +396,16 @@ export const CustomerPaymentPage: React.FC = () => {
               <h2 className="text-base sm:text-lg font-black text-slate-900 leading-tight">
                 {payment.merchantName || merchantProfile.name || 'IrisMe Merchant'}
               </h2>
-              <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-0.5">
                 <span className="font-mono">{targetChain.name}</span>
+                <span>•</span>
+                <span className="font-mono text-slate-600" title={payment.merchantAddress || merchantProfile.settlementAddress}>
+                  {payment.merchantAddress
+                    ? `${payment.merchantAddress.slice(0, 6)}...${payment.merchantAddress.slice(-4)}`
+                    : merchantProfile.settlementAddress
+                    ? `${merchantProfile.settlementAddress.slice(0, 6)}...${merchantProfile.settlementAddress.slice(-4)}`
+                    : '0x8F3a...A093'}
+                </span>
                 {payment.orderRef && (
                   <>
                     <span>•</span>
@@ -388,7 +439,7 @@ export const CustomerPaymentPage: React.FC = () => {
         </div>
 
         {/* 2. Amount & Asset / Token Display */}
-        <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
+        <div data-tour="token-selector" className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <TokenLogo
@@ -425,15 +476,70 @@ export const CustomerPaymentPage: React.FC = () => {
             </span>
           </div>
 
-          {/* 4. VERSE Customer Cashback Notice */}
-          <div className="p-3 rounded-xl bg-purple-50/70 border border-purple-200/80 flex items-center justify-between text-xs text-purple-900">
-            <div className="flex items-center gap-1.5 font-medium">
-              <Coins className="w-4 h-4 text-purple-600 flex-shrink-0" />
-              <span>Customer VERSE Cashback:</span>
+          {/* 4. VERSE Customer Rewards & Real-Time Verse Ecosystem Section */}
+          <div data-tour="verse-cashback-box" className="p-3.5 rounded-2xl bg-gradient-to-br from-cyan-50/70 via-purple-50/70 to-pink-50/70 border border-purple-200/90 space-y-2.5 text-xs text-slate-800">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-bold text-purple-900">
+                <Coins className="w-4 h-4 text-purple-600 flex-shrink-0" />
+                <span>Customer VERSE Cashback</span>
+                <span className="px-1.5 py-0.2 rounded bg-purple-200/80 text-[10px] text-purple-800 font-bold">
+                  {effectiveCashbackPercent}% Rate
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="font-mono font-black text-purple-700 text-sm">
+                  +{calculatedVerseReward.toLocaleString()} VERSE
+                </span>
+                <span className="text-[10px] text-slate-500 block font-mono">
+                  ≈ ${calculatedRewardUSDValue} USD
+                </span>
+              </div>
             </div>
-            <span className="font-mono font-black text-purple-700">
-              +{payment.verseEarned || Math.round(payment.amountUSD * 26)} VERSE
-            </span>
+
+            {/* Live VERSE Price & Blockchain Specs */}
+            <div className="pt-2 border-t border-purple-200/60 flex flex-wrap items-center justify-between gap-1 text-[11px] font-mono">
+              <div className="flex items-center gap-1 text-slate-600">
+                <Zap className="w-3 h-3 text-cyan-600" />
+                <span>Live VERSE Price:</span>
+                <strong className="text-slate-900 font-bold">${liveVersePrice.toFixed(7)}</strong>
+              </div>
+              <a
+                href="https://dex.verse.bitcoin.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-purple-700 hover:text-purple-900 font-bold flex items-center gap-0.5 underline text-[10px]"
+              >
+                <span>Verse DEX</span>
+                <ExternalLink className="w-2.5 h-2.5" />
+              </a>
+            </div>
+
+            <div className="p-2 rounded-xl bg-white/80 border border-purple-100 space-y-1 text-[10px] font-mono text-slate-600">
+              <div className="flex justify-between items-center">
+                <span>Polygon PoS Contract:</span>
+                <a
+                  href={`https://polygonscan.com/token/${VERSE_TOKEN_ADDRESSES[137]}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-700 hover:underline flex items-center gap-0.5"
+                >
+                  <span>{VERSE_TOKEN_ADDRESSES[137].slice(0, 6)}...{VERSE_TOKEN_ADDRESSES[137].slice(-4)}</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </div>
+              <div className="flex justify-between items-center">
+                <span>Ethereum Contract:</span>
+                <a
+                  href={`https://etherscan.io/token/${VERSE_TOKEN_ADDRESSES[1]}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-700 hover:underline flex items-center gap-0.5"
+                >
+                  <span>{VERSE_TOKEN_ADDRESSES[1].slice(0, 6)}...{VERSE_TOKEN_ADDRESSES[1].slice(-4)}</span>
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </a>
+              </div>
+            </div>
           </div>
 
           {/* 5. Expiration Timer */}
@@ -511,6 +617,7 @@ export const CustomerPaymentPage: React.FC = () => {
           {!isConnected && (
             <div className="space-y-2.5">
               <Button
+                data-tour="connect-wallet-btn"
                 variant="iris"
                 size="lg"
                 className="w-full text-base font-bold shadow-xl shadow-purple-500/20 cursor-pointer py-3.5"
@@ -550,6 +657,7 @@ export const CustomerPaymentPage: React.FC = () => {
 
                 {/* Pay Button */}
                 <Button
+                  data-tour="pay-action-btn"
                   variant="iris"
                   size="lg"
                   className="w-full text-base font-bold shadow-xl shadow-purple-500/25 cursor-pointer py-3.5"
@@ -730,6 +838,169 @@ export const CustomerPaymentPage: React.FC = () => {
                 </div>
               )}
 
+              {/* On-Chain Refund Status Display (If Refunded) */}
+              {(payment?.status === 'refunded' || payment?.refundStatus === 'COMPLETED') && (
+                <div className="p-4 rounded-xl bg-slate-900 text-white border border-slate-700 space-y-2 text-left shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-purple-300">
+                      <RotateCcw className="w-4 h-4 text-purple-400" />
+                      <span>Payment Refunded (On-Chain)</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-purple-950 border border-purple-500/40 text-[10px] font-bold text-purple-200">
+                      REVERSED
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-snug">
+                    A separate on-chain refund of <strong className="text-white">${payment.amountUSD.toFixed(2)}</strong> was transferred back to your wallet.
+                  </p>
+                  {payment.refundDetails?.refundTxHash && (
+                    <div className="pt-1 flex items-center justify-between text-[10.5px] font-mono border-t border-slate-800">
+                      <span className="text-slate-400">Refund Tx Hash:</span>
+                      <a
+                        href={getExplorerTxUrl(payment.chainId || 137, payment.refundDetails.refundTxHash)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-purple-300 hover:text-purple-100 flex items-center gap-1 font-bold underline"
+                      >
+                        <span>{payment.refundDetails.refundTxHash.slice(0, 8)}...{payment.refundDetails.refundTxHash.slice(-6)}</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Refund Request Pending Banner */}
+              {payment?.refundStatus === 'REQUESTED' && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-left text-xs text-amber-900 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Refund Request Pending Merchant Approval</span>
+                  </div>
+                  <p className="text-[11px] text-amber-800">
+                    Reason: {payment.refundDetails?.reason || 'Customer requested refund.'}
+                  </p>
+                </div>
+              )}
+
+              {/* Request Refund Trigger (Secondary Feature) */}
+              {payment &&
+                payment.status !== 'refunded' &&
+                payment.refundStatus !== 'COMPLETED' &&
+                payment.refundStatus !== 'REQUESTED' && (
+                  <div className="pt-1 text-center">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRefundModalOpen(true);
+                        setRefundFeedback(null);
+                      }}
+                      className="text-[11px] text-slate-500 hover:text-purple-700 underline font-medium inline-flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Need to request a refund for this purchase?
+                    </button>
+                  </div>
+                )}
+
+              {/* Refund Request Inline Form / Modal */}
+              {isRefundModalOpen && (
+                <div className="p-4 rounded-xl bg-slate-50 border border-purple-200 text-left space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                      <RotateCcw className="w-3.5 h-3.5 text-purple-600" />
+                      Request Full Refund
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsRefundModalOpen(false)}
+                      className="text-slate-400 hover:text-slate-600 text-xs font-bold"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-slate-600 leading-snug">
+                    Submit a refund request to <strong className="font-semibold text-slate-900">{payment?.merchantName || 'the merchant'}</strong>. Blockchain transactions cannot be reversed; if approved, the merchant will execute a separate transfer to your wallet.
+                  </p>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-700">Reason for Refund (Optional):</label>
+                    <input
+                      type="text"
+                      value={refundReasonInput}
+                      onChange={(e) => setRefundReasonInput(e.target.value)}
+                      placeholder="e.g. Order cancelled or wrong item"
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    />
+                  </div>
+
+                  {refundFeedback && (
+                    <div
+                      className={`p-2 rounded-lg text-xs ${
+                        refundFeedback.type === 'success'
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          : 'bg-rose-50 text-rose-800 border border-rose-200'
+                      }`}
+                    >
+                      {refundFeedback.message}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setIsRefundModalOpen(false)}
+                      className="cursor-pointer text-xs"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="iris"
+                      size="sm"
+                      disabled={refundSubmitting}
+                      isLoading={refundSubmitting}
+                      onClick={async () => {
+                        if (!payment) return;
+                        setRefundSubmitting(true);
+                        try {
+                          const res = await requestRefund(
+                            payment.id,
+                            refundReasonInput.trim() || 'Customer requested refund',
+                            address || '0xCustomerWallet'
+                          );
+                          if (res.success) {
+                            setRefundFeedback({
+                              type: 'success',
+                              message: 'Refund request submitted to merchant.',
+                            });
+                            setTimeout(() => setIsRefundModalOpen(false), 1500);
+                          } else {
+                            setRefundFeedback({
+                              type: 'error',
+                              message: res.error || 'Failed to submit refund request.',
+                            });
+                          }
+                        } catch (err: any) {
+                          setRefundFeedback({
+                            type: 'error',
+                            message: err?.message || 'Failed to submit refund request.',
+                          });
+                        } finally {
+                          setRefundSubmitting(false);
+                        }
+                      }}
+                      className="cursor-pointer text-xs font-bold"
+                    >
+                      Submit Request
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <div className="pt-2">
                 <Button
                   variant="iris"
@@ -799,7 +1070,11 @@ export const CustomerPaymentPage: React.FC = () => {
                   amountUSD={payment.amountUSD}
                   tokenAmount={calculatedTokenAmount}
                   tokenSymbol={selectedToken}
-                  merchantAddress={merchantProfile.settlementAddress || '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093'}
+                  merchantAddress={payment.merchantAddress || merchantProfile.settlementAddress || '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093'}
+                  merchantName={payment.merchantName || merchantProfile.name || 'IrisMe Merchant'}
+                  itemDescription={payment.description}
+                  networkName={targetChain.name}
+                  verseEarned={payment.verseEarned}
                 />
               </div>
             )}

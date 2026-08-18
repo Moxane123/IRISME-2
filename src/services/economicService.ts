@@ -4,22 +4,20 @@ import {
   MerchantNetSettlement,
   SupportedToken,
   Payment,
-  MerchantProfile,
   MerchantCategoryType,
 } from '../types';
-import { SUPPORTED_CHAINS, getChainConfig, DEFAULT_CHAIN_ID, getNativeGasAsset } from '../config/chains';
-import { TOKEN_CONFIGS } from '../config/tokens';
-import { getFeeConfig, FeeConfiguration } from '../config/fees';
+import { SUPPORTED_CHAINS, getChainConfig, DEFAULT_CHAIN_ID } from '../config/chains';
+import { DEFAULT_PLATFORM_FEE_PERCENT, getPlatformFeePercent, calculatePlatformFee } from '../config/fees';
 import { getRewardConfig, getRewardRateForMerchantType } from '../config/rewards';
 import { PriceService } from './priceService';
 import { RewardEngine, CashbackCalculation, DEFAULT_VERSE_RATE_USD } from './rewardService';
 
-export const DEFAULT_PLATFORM_FEE_PERCENT = 0.25; // IrisMe initial configurable 0.25% protocol fee
+export { DEFAULT_PLATFORM_FEE_PERCENT };
 
 export interface CompletePaymentEconomics {
   // 1. BLOCKCHAIN NETWORK FEE (Gas paid to miners/validators - separate network cost)
   gasEstimate: GasEstimate;
-  // 2. IRISME PLATFORM FEE & NET SETTLEMENT (Configurable protocol fee, default 0.25%)
+  // 2. IRISME PLATFORM FEE & NET SETTLEMENT (Configurable protocol fee, default 1.0%)
   platformFee: PlatformFeeDetails;
   merchantSettlement: MerchantNetSettlement;
   // 3. VERSE CUSTOMER REWARDS (Merchant-funded loyalty cashback in VERSE)
@@ -28,24 +26,21 @@ export interface CompletePaymentEconomics {
 
 /**
  * =========================================================================
- * IRISME ECONOMIC ARCHITECTURE SERVICE
+ * IRISME ECONOMIC ARCHITECTURE SERVICE (MVP)
  * =========================================================================
- * Enforces strict, unambiguous separation of three distinct economic concepts:
+ * Enforces clear separation of three distinct concepts:
  *
- * 1. BLOCKCHAIN NETWORK FEES:
- *    Paid to blockchain miners / validators for transaction inclusion.
- *    Denominated and settled ONLY in native gas assets (ETH, POL, BNB, AVAX).
- *    Dynamically estimated from network gas price, transfer units, and live native token USD price.
- *    VERSE is NOT assumed to be the gas token.
- *    Gas is NOT subtracted from the merchant settlement; it remains a separate network cost.
+ * 1. BLOCKCHAIN NETWORK FEES (Gas):
+ *    Paid to miners/validators for transaction inclusion.
+ *    Denominated and settled ONLY in native gas assets (POL, ETH, BNB, AVAX).
+ *    Gas is NOT subtracted from merchant settlement; it is paid by the payer.
  *
- * 2. IRISME PLATFORM FEES:
- *    Configurable protocol facilitation fee (initial default: 0.25%).
- *    Example: Payment = $100 -> IrisMe Fee (0.25%) = $0.25 -> Merchant Net Settlement = $99.75.
+ * 2. IRISME PLATFORM FEE (Centralized MVP Model):
+ *    Single central configurable facilitation fee (e.g. 1.0%).
+ *    Example: Payment = $100.00 -> iRisme Fee (1%) = $1.00 -> Merchant Receives = $99.00.
  *
  * 3. VERSE CUSTOMER REWARDS:
- *    Customer loyalty rewards denominated in VERSE tokens (e.g. 2% cashback),
- *    funded from the merchant's dedicated loyalty pool or promotional campaign.
+ *    Customer loyalty rewards denominated in VERSE tokens.
  * =========================================================================
  */
 export class EconomicService {
@@ -53,7 +48,7 @@ export class EconomicService {
    * Returns the currently active platform fee percentage
    */
   public static getActivePlatformFeePercent(): number {
-    return getFeeConfig().platformFeePercent || DEFAULT_PLATFORM_FEE_PERCENT;
+    return getPlatformFeePercent();
   }
 
   /**
@@ -120,9 +115,9 @@ export class EconomicService {
 
   /**
    * 2. IRISME PLATFORM FEE & MERCHANT NET SETTLEMENT
-   * Initial 0.25% configurable platform fee calculation and net settlement derivation.
-   * Example: $100 invoice -> $0.25 IrisMe fee -> $99.75 Net Settlement
-   * Note: Blockchain gas is NOT subtracted from merchant settlement.
+   * Single clear platform fee model:
+   * Example: $100 invoice -> $1.00 iRisme fee (1%) -> $99.00 Net Settlement
+   * Safe financial decimal precision.
    */
   public static calculatePlatformFee(params: {
     amountUSD: number;
@@ -130,36 +125,17 @@ export class EconomicService {
     settlementAddress: string;
     platformFeePercent?: number;
   }): { platformFee: PlatformFeeDetails; merchantSettlement: MerchantNetSettlement } {
-    const feePercent = params.platformFeePercent ?? this.getActivePlatformFeePercent();
-    const rate = feePercent / 100;
-
-    const safeAmountUSD = Math.max(0, params.amountUSD || 0);
-    const safeTokenAmount = Math.max(0, params.tokenAmount || 0);
-
-    const platformFeeUSD = Number((safeAmountUSD * rate).toFixed(4));
-    const platformFeeTokenAmount = Number((safeTokenAmount * rate).toFixed(6));
-
-    // Net settlement is gross amount minus the platform fee (gas is paid separately by transaction sender)
-    const netUSD = Number((safeAmountUSD - platformFeeUSD).toFixed(4));
-    const netTokenAmount = Number((safeTokenAmount - platformFeeTokenAmount).toFixed(6));
-
-    return {
-      platformFee: {
-        platformFeePercent: feePercent,
-        platformFeeUSD,
-        platformFeeTokenAmount,
-      },
-      merchantSettlement: {
-        netUSD,
-        netTokenAmount,
-        settlementAddress: params.settlementAddress,
-      },
-    };
+    return calculatePlatformFee({
+      amountUSD: params.amountUSD,
+      tokenAmount: params.tokenAmount,
+      settlementAddress: params.settlementAddress,
+      platformFeePercent: params.platformFeePercent ?? getPlatformFeePercent(),
+    });
   }
 
   /**
    * 3. VERSE CUSTOMER REWARDS
-   * Calculates customer loyalty rewards in VERSE tokens based on merchant type (IrisMe: 1.00%, External: 0.25%)
+   * Calculates customer loyalty rewards in VERSE tokens based on merchant type
    */
   public static calculateCustomerReward(params: {
     amountUSD: number;
@@ -183,7 +159,7 @@ export class EconomicService {
   }
 
   /**
-   * Evaluates the complete, separated 3-concept economics for any payment
+   * Evaluates the complete, separated economics for any payment
    */
   public static getPaymentEconomics(params: {
     amountUSD: number;
@@ -231,5 +207,3 @@ export class EconomicService {
     };
   }
 }
-
-

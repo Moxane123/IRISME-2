@@ -6,43 +6,46 @@ import { IrisLogo } from './IrisLogo';
 import { Button } from './Button';
 import { TokenLogo } from './TokenLogo';
 import { TokenLogoModal } from './TokenLogoModal';
+import { QRScannerModal } from './QRScannerModal';
+import { NotificationCenter } from './NotificationCenter';
 import { getChainConfig, DEFAULT_CHAIN_ID } from '../../config';
 import {
   Wallet,
   Store,
-  User,
   Settings,
   ChevronDown,
   Menu,
   X,
   PlusCircle,
   AlertTriangle,
-  Globe,
   Sparkles,
+  QrCode,
+  CreditCard,
+  KeyRound,
+  Camera,
+  BookOpen,
+  HelpCircle,
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const { currentPath, navigate } = useRouter();
-  const { wallet, setIsWalletModalOpen, switchRole } = useApp();
+  const {
+    wallet,
+    setIsWalletModalOpen,
+    isMerchantAuthenticated,
+    merchantProfile,
+    openTutorial,
+  } = useApp();
   const { isConnected, isWrongNetwork, chainId, currentChain } = useWeb3();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
+  const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
 
-  const isMerchant = currentPath.startsWith('/merchant');
-  const isCustomer = currentPath.startsWith('/customer');
+  const isMerchant = currentPath.startsWith('/merchant') || currentPath === '/';
 
   const formatAddress = (addr: string) => {
     if (!addr) return '';
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-  };
-
-  const handleRoleToggle = (targetRole: 'merchant' | 'customer') => {
-    switchRole(targetRole);
-    if (targetRole === 'merchant') {
-      navigate('/merchant');
-    } else {
-      navigate('/customer');
-    }
   };
 
   const activeChain = currentChain || getChainConfig(DEFAULT_CHAIN_ID);
@@ -59,45 +62,77 @@ export const Navbar: React.FC = () => {
             <IrisLogo size={34} showText={true} />
           </button>
 
-          {/* Role Switcher on Desktop */}
+          {/* Navigation on Desktop */}
           <nav className="hidden md:flex items-center gap-1 bg-slate-100/90 p-1 rounded-xl border border-slate-200">
             <button
-              onClick={() => navigate('/')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                currentPath === '/'
+              onClick={() => navigate('/merchant')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                currentPath === '/merchant'
+                  ? 'bg-white text-slate-900 shadow-sm border border-slate-200/60'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Store className="w-3.5 h-3.5 text-purple-600" />
+              <span>Merchant Portal</span>
+            </button>
+
+            <button
+              onClick={() => navigate('/merchant/payments')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                currentPath === '/merchant/payments'
                   ? 'bg-white text-slate-900 font-semibold shadow-sm border border-slate-200/60'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Overview
+              Invoices & Payments
             </button>
+
             <button
-              onClick={() => handleRoleToggle('merchant')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                isMerchant
-                  ? 'bg-gradient-to-r from-[#00D2FE] via-[#7C3AED] to-[#FF0080] text-white shadow-md shadow-purple-500/20'
+              onClick={() => navigate('/merchant/rewards')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                currentPath === '/merchant/rewards'
+                  ? 'bg-white text-slate-900 font-semibold shadow-sm border border-slate-200/60'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Store className="w-3.5 h-3.5" />
-              <span>Merchant Portal</span>
+              VERSE Rewards Pool
             </button>
+
             <button
-              onClick={() => handleRoleToggle('customer')}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                isCustomer
-                  ? 'bg-gradient-to-r from-[#00D2FE] via-[#7C3AED] to-[#FF0080] text-white shadow-md shadow-purple-500/20'
+              onClick={() => navigate('/transfer')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                currentPath === '/transfer'
+                  ? 'bg-white text-slate-900 font-semibold shadow-sm border border-slate-200/60'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <User className="w-3.5 h-3.5" />
-              <span>Customer Checkout</span>
+              Multi-Chain Transfer
             </button>
           </nav>
         </div>
 
         {/* Right Actions & Wallet */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          {/* Quick Tutorial & Interactive Demo Trigger */}
+          <button
+            onClick={() => openTutorial('customer')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-purple-200 bg-gradient-to-r from-purple-50 to-pink-50 hover:from-purple-100 hover:to-pink-100 text-xs font-bold text-purple-900 transition-all cursor-pointer shadow-xs"
+            title="Interactive tutorial on how customers pay and how merchants create channels"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-600 animate-pulse" />
+            <span>Tutorial & Demo</span>
+          </button>
+
+          {/* Scan QR Code to Pay Button */}
+          <button
+            onClick={() => setIsScannerModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 transition-colors cursor-pointer shadow-xs"
+            title="Scan customer barcode or QR code to test or pay invoice"
+          >
+            <Camera className="w-3.5 h-3.5 text-[#00D2FE]" />
+            <span className="hidden sm:inline">Scan to Pay</span>
+          </button>
+
           {/* Quick Create Payment CTA for Merchants */}
           <Button
             variant="iris"
@@ -106,8 +141,12 @@ export const Navbar: React.FC = () => {
             onClick={() => navigate('/merchant/create-payment')}
           >
             <PlusCircle className="w-3.5 h-3.5" />
-            <span>Create Payment</span>
+            <span className="hidden sm:inline">Create Payment</span>
+            <span className="sm:hidden">Create</span>
           </Button>
+
+          {/* In-App Essential Payment Notifications */}
+          <NotificationCenter />
 
           {/* Currency Logos & GIFs Gallery Trigger */}
           <button
@@ -116,7 +155,7 @@ export const Navbar: React.FC = () => {
             title="Browse all token and currency logos, animated GIFs, and live price feeds"
           >
             <TokenLogo symbol="VERSE" size="xs" variant="gif" animated={true} />
-            <span>Token Logos</span>
+            <span>Tokens</span>
           </button>
 
           {/* Network Pill */}
@@ -159,82 +198,64 @@ export const Navbar: React.FC = () => {
             <Button
               variant="iris"
               size="sm"
-              leftIcon={<Wallet className="w-4 h-4" />}
+              className="flex items-center gap-1.5 text-xs font-bold shadow-md shadow-purple-500/20"
               onClick={() => setIsWalletModalOpen(true)}
             >
-              Connect Wallet
+              <Wallet className="w-3.5 h-3.5" />
+              <span>Connect Wallet</span>
             </Button>
           )}
 
-          {/* Settings Button */}
-          <button
-            onClick={() => navigate('/settings')}
-            className={`p-2 rounded-xl border transition-colors cursor-pointer ${
-              currentPath === '/settings'
-                ? 'bg-slate-100 border-slate-300 text-slate-900'
-                : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-            title="Settings"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-
-          {/* Mobile menu toggle */}
+          {/* Mobile Hamburger Toggle */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-slate-900 cursor-pointer"
+            className="md:hidden p-2 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 cursor-pointer"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
         </div>
       </div>
 
-      {/* Mobile Drawer Menu */}
+      {/* Mobile Menu Dropdown */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-b border-slate-200 bg-white p-4 space-y-3 animate-fadeIn shadow-lg">
-          <div className="grid grid-cols-3 gap-2">
+        <div className="md:hidden border-t border-slate-200 bg-white px-4 pt-3 pb-6 space-y-3 shadow-xl animate-fadeIn">
+          <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => {
-                navigate('/');
-                setMobileMenuOpen(false);
-              }}
-              className={`p-2.5 rounded-xl text-xs font-medium text-center border ${
-                currentPath === '/'
-                  ? 'bg-slate-100 border-slate-300 text-slate-900 font-bold'
-                  : 'bg-slate-50 border-slate-200 text-slate-600'
-              }`}
-            >
-              Home
-            </button>
-            <button
-              onClick={() => {
-                handleRoleToggle('merchant');
+                navigate('/merchant');
                 setMobileMenuOpen(false);
               }}
               className={`p-2.5 rounded-xl text-xs font-bold text-center border ${
-                isMerchant
-                  ? 'bg-gradient-to-r from-[#00D2FE] via-[#7C3AED] to-[#FF0080] text-white border-purple-500'
-                  : 'bg-slate-50 border-slate-200 text-slate-600'
+                currentPath === '/merchant'
+                  ? 'bg-purple-50 border-purple-300 text-purple-900'
+                  : 'bg-slate-50 border-slate-200 text-slate-700'
               }`}
             >
-              Merchant
+              Merchant Portal
             </button>
             <button
               onClick={() => {
-                handleRoleToggle('customer');
+                setIsScannerModalOpen(true);
                 setMobileMenuOpen(false);
               }}
-              className={`p-2.5 rounded-xl text-xs font-bold text-center border ${
-                isCustomer
-                  ? 'bg-gradient-to-r from-[#00D2FE] via-[#7C3AED] to-[#FF0080] text-white border-purple-500'
-                  : 'bg-slate-50 border-slate-200 text-slate-600'
-              }`}
+              className="p-2.5 rounded-xl text-xs font-bold text-center border bg-slate-50 border-slate-200 text-slate-700 flex items-center justify-center gap-1.5"
             >
-              Customer
+              <Camera className="w-3.5 h-3.5 text-[#00D2FE]" />
+              <span>Scan Barcode</span>
             </button>
           </div>
 
           <div className="pt-2 border-t border-slate-100 space-y-1 text-xs">
+            <button
+              onClick={() => {
+                openTutorial('customer');
+                setMobileMenuOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 rounded-lg bg-gradient-to-r from-purple-50 to-pink-50 text-purple-900 font-bold flex items-center gap-2"
+            >
+              <Sparkles className="w-4 h-4 text-purple-600 animate-pulse" />
+              <span>Quick Tutorial & Live Demo</span>
+            </button>
             <button
               onClick={() => {
                 navigate('/merchant/create-payment');
@@ -250,27 +271,38 @@ export const Navbar: React.FC = () => {
                 navigate('/merchant/payments');
                 setMobileMenuOpen(false);
               }}
-              className="w-full text-left px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-50 font-medium"
+              className="w-full text-left px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-50 font-medium flex items-center gap-2"
             >
-              Merchant Payments List
+              <CreditCard className="w-4 h-4 text-purple-600" />
+              <span>Merchant Invoices & Payments</span>
             </button>
             <button
               onClick={() => {
-                navigate('/customer/rewards');
+                navigate('/merchant/rewards');
                 setMobileMenuOpen(false);
               }}
               className="w-full text-left px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-50 font-medium"
             >
-              Customer VERSE Rewards
+              VERSE Rewards Pool
             </button>
             <button
               onClick={() => {
-                navigate('/customer/loyalty');
+                navigate('/transfer');
                 setMobileMenuOpen(false);
               }}
               className="w-full text-left px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-50 font-medium"
             >
-              Merchant Loyalty Cards
+              Multi-Chain Transfer Tool
+            </button>
+            <button
+              onClick={() => {
+                navigate('/settings');
+                setMobileMenuOpen(false);
+              }}
+              className="w-full text-left px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-50 font-medium flex items-center gap-2"
+            >
+              <Settings className="w-4 h-4 text-slate-500" />
+              <span>Settings & Settlements</span>
             </button>
             <button
               onClick={() => {
@@ -280,7 +312,7 @@ export const Navbar: React.FC = () => {
               className="w-full text-left px-3 py-2 rounded-lg text-purple-700 hover:bg-purple-50 font-bold flex items-center gap-2"
             >
               <Sparkles className="w-4 h-4 text-purple-600" />
-              <span>Token Logos & Animated GIFs</span>
+              <span>Token Logos Gallery</span>
             </button>
           </div>
         </div>
@@ -290,9 +322,15 @@ export const Navbar: React.FC = () => {
       <TokenLogoModal
         isOpen={isLogoModalOpen}
         onClose={() => setIsLogoModalOpen(false)}
-        onSelectToken={(sym) => {
+        onSelectToken={() => {
           setIsLogoModalOpen(false);
         }}
+      />
+
+      {/* QR & Barcode Scanner Modal */}
+      <QRScannerModal
+        isOpen={isScannerModalOpen}
+        onClose={() => setIsScannerModalOpen(false)}
       />
     </header>
   );
