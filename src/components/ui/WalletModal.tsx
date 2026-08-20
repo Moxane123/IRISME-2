@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { useWeb3 } from '../../context/Web3Context';
 import { Button } from './Button';
 import { IrisLogo } from './IrisLogo';
+import { WalletType, Web3WalletService } from '../../services/web3WalletService';
 import {
   SUPPORTED_CHAINS,
   DEFAULT_CHAIN_ID,
@@ -12,7 +13,6 @@ import {
 import {
   Wallet,
   ShieldCheck,
-  ArrowRightLeft,
   Copy,
   Check,
   ExternalLink,
@@ -21,28 +21,82 @@ import {
   RefreshCw,
   Zap,
   Globe,
-  Radio,
   ChevronDown,
   Coins,
+  ArrowRight,
+  Smartphone,
+  CheckCircle2,
 } from 'lucide-react';
 
+interface WalletCardInfo {
+  type: WalletType;
+  name: string;
+  badge: string;
+  icon: string;
+  iconBg: string;
+  description: string;
+}
+
+const WALLET_OPTIONS: WalletCardInfo[] = [
+  {
+    type: 'metamask',
+    name: 'MetaMask',
+    badge: 'Popular',
+    icon: '🦊',
+    iconBg: 'from-orange-500/20 to-amber-500/20 border-orange-200',
+    description: 'Connect using MetaMask browser extension or mobile app',
+  },
+  {
+    type: 'coinbase',
+    name: 'Coinbase Wallet',
+    badge: 'EVM & Smart Wallet',
+    icon: '🔵',
+    iconBg: 'from-blue-500/20 to-indigo-500/20 border-blue-200',
+    description: 'Connect Coinbase Wallet extension, mobile app, or passkeys',
+  },
+  {
+    type: 'trust',
+    name: 'Trust Wallet',
+    badge: 'Mobile & Extension',
+    icon: '🛡️',
+    iconBg: 'from-cyan-500/20 to-blue-500/20 border-cyan-200',
+    description: 'Connect Trust Wallet browser extension or mobile app',
+  },
+  {
+    type: 'walletconnect',
+    name: 'WalletConnect / Reown',
+    badge: '300+ Wallets',
+    icon: '⚡',
+    iconBg: 'from-purple-500/20 to-pink-500/20 border-purple-200',
+    description: 'Scan QR code with Rainbow, Zerion, Verse, Ledger, or any mobile wallet',
+  },
+  {
+    type: 'injected',
+    name: 'Browser Injected Wallet',
+    badge: 'Auto-Detect',
+    icon: '🌐',
+    iconBg: 'from-slate-500/20 to-slate-700/20 border-slate-200',
+    description: 'Connect any detected browser wallet (Rabby, Brave, Phantom, Frame)',
+  },
+];
+
 export const WalletModal: React.FC = () => {
-  const { wallet, isWalletModalOpen, setIsWalletModalOpen, switchRole } = useApp();
+  const { isWalletModalOpen, setIsWalletModalOpen } = useApp();
   const {
-    isAvailable: isEthereumAvailable,
     isConnected,
     isConnecting,
+    connectingWalletType,
     isLoadingBalances,
     address,
     chainId,
     currentChain,
     isWrongNetwork,
-    walletMode,
+    walletType,
+    discoveredProviders,
     balances,
     error,
     clearError,
-    connectInjected,
-    connectDemo,
+    connectWithWallet,
     disconnect,
     switchTargetNetwork,
     refreshBalances,
@@ -50,8 +104,6 @@ export const WalletModal: React.FC = () => {
 
   const [copied, setCopied] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [customAddressInput, setCustomAddressInput] = useState('');
-  const [showCustomInput, setShowCustomInput] = useState(false);
   const [showNetworkDropdown, setShowNetworkDropdown] = useState(false);
 
   if (!isWalletModalOpen) return null;
@@ -69,14 +121,14 @@ export const WalletModal: React.FC = () => {
     setTimeout(() => setIsRefreshing(false), 600);
   };
 
-  const handleConnectInjected = async () => {
+  const handleSelectWallet = async (type: WalletType, customProvider?: any) => {
     clearError();
-    await connectInjected();
+    await connectWithWallet(type, customProvider);
   };
 
-  const handleConnectCustom = (customAddr?: string) => {
-    connectDemo(customAddr);
-    setShowCustomInput(false);
+  const formatShortAddress = (addr: string) => {
+    if (!addr) return '';
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
   };
 
   const activeChain = currentChain || getChainConfig(DEFAULT_CHAIN_ID);
@@ -84,7 +136,7 @@ export const WalletModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-white border border-slate-200 rounded-3xl shadow-2xl overflow-hidden text-slate-900">
+      <div className="relative w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-2xl overflow-hidden text-slate-900">
         {/* Iridescent Top Accent */}
         <div className="h-1.5 w-full bg-gradient-to-r from-[#00D2FE] via-[#7C3AED] to-[#FF0080]" />
 
@@ -93,8 +145,12 @@ export const WalletModal: React.FC = () => {
           <div className="flex items-center gap-3">
             <IrisLogo size={28} />
             <div>
-              <h3 className="font-bold text-slate-900 text-base tracking-tight">Self-Custodial Web3 Wallet</h3>
-              <p className="text-xs text-slate-500">Live On-Chain Settlement & Real Balances</p>
+              <h3 className="font-bold text-slate-900 text-base tracking-tight">
+                {isConnected ? 'Connected Web3 Wallet' : 'Connect a Wallet'}
+              </h3>
+              <p className="text-xs text-slate-500">
+                {isConnected ? 'Self-Custodial EVM Account' : 'Choose your preferred wallet to connect to IRISME'}
+              </p>
             </div>
           </div>
           <button
@@ -110,14 +166,16 @@ export const WalletModal: React.FC = () => {
 
         {/* Error Alert Box */}
         {error && (
-          <div className="mx-5 mt-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start justify-between gap-2">
+          <div className="mx-5 mt-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start justify-between gap-2 animate-fadeIn">
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="font-bold text-rose-900">
-                  {error.isUserRejection ? 'Request Rejected in Wallet' : 'Connection Error'}
+                  {error.isUserRejection ? 'Connection Request Rejected' : 'Connection Error'}
                 </p>
-                <p className="mt-0.5 text-rose-700 text-[11px] leading-relaxed">{error.message}</p>
+                <p className="mt-0.5 text-rose-700 text-[11px] leading-relaxed">
+                  {error.message || 'Wallet connection was not approved.'}
+                </p>
               </div>
             </div>
             <button
@@ -137,10 +195,8 @@ export const WalletModal: React.FC = () => {
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 relative overflow-hidden">
                 <div className="flex items-center justify-between text-xs text-slate-500">
                   <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-slate-700 font-bold">
-                      {walletMode === 'injected' ? 'Live Web3 Connected' : 'Custom Address Connected'}
-                    </span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-emerald-700 font-bold">Connected</span>
                   </div>
 
                   <span
@@ -155,51 +211,39 @@ export const WalletModal: React.FC = () => {
                 </div>
 
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-xs sm:text-sm text-slate-900 font-bold truncate bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 flex-1 shadow-xs">
-                    {address}
+                  <span className="font-mono text-sm sm:text-base text-slate-900 font-bold truncate bg-white px-3 py-2 rounded-xl border border-slate-200 flex-1 shadow-xs">
+                    {formatShortAddress(address)}
                   </span>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <button
-                      onClick={handleCopy}
-                      className="p-2 rounded-lg bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors border border-slate-200 cursor-pointer shadow-xs"
-                      title="Copy Address"
-                    >
-                      {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                    <a
-                      href={explorerUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 rounded-lg bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 transition-colors border border-slate-200 shadow-xs"
-                      title="View on Explorer"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  </div>
+
+                  <button
+                    onClick={handleCopy}
+                    className="p-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-900 transition-colors shadow-xs cursor-pointer flex-shrink-0"
+                    title="Copy full address"
+                  >
+                    {copied ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                  </button>
+
+                  <a
+                    href={explorerUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-900 transition-colors shadow-xs cursor-pointer flex-shrink-0"
+                    title="View on block explorer"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
                 </div>
 
-                {isWrongNetwork && (
-                  <div className="pt-1 flex items-center justify-between text-xs text-amber-900 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
-                    <span className="font-medium">Switch to Polygon / Verse Hub</span>
-                    <button
-                      onClick={() => switchTargetNetwork(DEFAULT_CHAIN_ID)}
-                      className="px-2.5 py-1 bg-amber-500 text-slate-950 font-bold text-[11px] rounded-lg hover:bg-amber-400 transition-colors shadow-xs"
-                    >
-                      Switch Network
-                    </button>
-                  </div>
-                )}
-              </div>
+                <div className="text-[11px] text-slate-500 font-mono break-all bg-slate-100/70 p-2 rounded-lg">
+                  {address}
+                </div>
 
-              {/* Network Switcher Selector */}
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                  Active Blockchain Network
-                </label>
-                <div className="relative">
+                {/* Network Switcher */}
+                <div className="pt-2 border-t border-slate-200/80">
+                  <div className="text-[11px] font-semibold text-slate-600 mb-1.5">Active Network</div>
                   <button
                     onClick={() => setShowNetworkDropdown(!showNetworkDropdown)}
-                    className="w-full p-3 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 flex items-center justify-between text-xs text-slate-800 transition-colors cursor-pointer shadow-xs"
+                    className="w-full p-2.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 flex items-center justify-between text-xs text-slate-800 transition-colors cursor-pointer shadow-xs"
                   >
                     <div className="flex items-center gap-2">
                       <Globe className="w-4 h-4 text-purple-600" />
@@ -237,12 +281,12 @@ export const WalletModal: React.FC = () => {
                 </div>
               </div>
 
-              {/* Real Wallet Balances Card */}
+              {/* Real Balances Summary */}
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
                 <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <Coins className="w-3.5 h-3.5 text-purple-600" />
-                    Real On-Chain Balances
+                    On-Chain Balances
                   </span>
                   <button
                     onClick={handleRefresh}
@@ -256,111 +300,46 @@ export const WalletModal: React.FC = () => {
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                   <div className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between shadow-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-emerald-600 font-bold">₮</span>
-                      <span className="text-slate-700 font-medium">USDT</span>
-                    </div>
-                    <span className="font-mono font-bold text-slate-900">
-                      ${(balances.USDT || 0).toFixed(2)}
-                    </span>
+                    <span className="text-slate-700 font-medium">USDT</span>
+                    <span className="font-mono font-bold text-slate-900">${(balances.USDT || 0).toFixed(2)}</span>
                   </div>
-
                   <div className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between shadow-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-blue-600 font-bold">$</span>
-                      <span className="text-slate-700 font-medium">USDC</span>
-                    </div>
-                    <span className="font-mono font-bold text-slate-900">
-                      ${(balances.USDC || 0).toFixed(2)}
-                    </span>
+                    <span className="text-slate-700 font-medium">USDC</span>
+                    <span className="font-mono font-bold text-slate-900">${(balances.USDC || 0).toFixed(2)}</span>
                   </div>
-
                   <div className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between shadow-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-purple-600 font-bold">Ξ</span>
-                      <span className="text-slate-700 font-medium">ETH</span>
-                    </div>
-                    <span className="font-mono font-bold text-slate-900">
-                      {balances.ETH || 0}
-                    </span>
+                    <span className="text-slate-700 font-medium">ETH</span>
+                    <span className="font-mono font-bold text-slate-900">{balances.ETH || 0}</span>
                   </div>
-
                   <div className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between shadow-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-amber-500 font-bold">₿</span>
-                      <span className="text-slate-700 font-medium">WBTC</span>
-                    </div>
-                    <span className="font-mono font-bold text-slate-900">
-                      {balances.WBTC || balances.BTC || 0}
-                    </span>
+                    <span className="text-slate-700 font-medium">POL</span>
+                    <span className="font-mono font-bold text-slate-900">{balances.POL || balances.MATIC || 0}</span>
                   </div>
-
                   <div className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between shadow-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-purple-600 font-bold">🟣</span>
-                      <span className="text-slate-700 font-medium">POL</span>
-                    </div>
-                    <span className="font-mono font-bold text-slate-900">
-                      {balances.POL || balances.MATIC || 0}
-                    </span>
+                    <span className="text-purple-700 font-bold">VERSE</span>
+                    <span className="font-mono font-bold text-purple-700">{(balances.VERSE || 0).toLocaleString()}</span>
                   </div>
-
                   <div className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between shadow-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-cyan-500 font-bold">⚡</span>
-                      <span className="text-slate-700 font-medium">VERSE</span>
-                    </div>
-                    <span className="font-mono font-bold text-purple-700">
-                      {(balances.VERSE || 0).toLocaleString()}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between shadow-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-yellow-500 font-bold">🟡</span>
-                      <span className="text-slate-700 font-medium">BNB</span>
-                    </div>
-                    <span className="font-mono font-bold text-slate-900">
-                      {balances.BNB || 0}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between shadow-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-red-500 font-bold">🔺</span>
-                      <span className="text-slate-700 font-medium">AVAX</span>
-                    </div>
-                    <span className="font-mono font-bold text-slate-900">
-                      {balances.AVAX || 0}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-white border border-slate-200 flex items-center justify-between shadow-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-emerald-500 font-bold">🟣</span>
-                      <span className="text-slate-700 font-medium">SOL</span>
-                    </div>
-                    <span className="font-mono font-bold text-slate-900">
-                      {balances.SOL || 0}
-                    </span>
+                    <span className="text-slate-700 font-medium">BNB</span>
+                    <span className="font-mono font-bold text-slate-900">{balances.BNB || 0}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Bottom Actions */}
+              {/* Action Buttons */}
               <div className="pt-2 flex items-center gap-2">
                 <Button
                   variant="outline"
-                  size="sm"
-                  className="w-full text-slate-700 hover:text-slate-900 border-slate-300"
+                  size="md"
+                  className="w-full text-rose-700 hover:text-rose-900 hover:bg-rose-50 border-rose-200 cursor-pointer font-bold"
                   onClick={disconnect}
                 >
                   Disconnect Wallet
                 </Button>
                 <Button
                   variant="iris"
-                  size="sm"
-                  className="w-full font-bold"
+                  size="md"
+                  className="w-full font-bold cursor-pointer"
                   onClick={() => setIsWalletModalOpen(false)}
                 >
                   Done
@@ -369,104 +348,111 @@ export const WalletModal: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-xs text-slate-500 mb-2">
-                Connect your Web3 wallet (MetaMask, Rabby, Coinbase Wallet, Verse Wallet). Real on-chain balances and assets will be displayed directly.
-              </p>
-
-              {/* Injected Browser Wallet Primary Card */}
-              <button
-                onClick={handleConnectInjected}
-                disabled={isConnecting}
-                className="w-full p-4 rounded-2xl bg-gradient-to-r from-purple-50 via-cyan-50 to-pink-50 hover:from-purple-100 hover:to-cyan-100 border border-purple-300 hover:border-purple-500 flex items-center justify-between text-left transition-all group cursor-pointer shadow-md shadow-purple-500/10 relative overflow-hidden"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#00D2FE] via-[#7C3AED] to-[#FF0080] flex items-center justify-center text-lg font-bold text-white shadow-sm flex-shrink-0">
-                    ⚡
-                  </div>
+              {/* Connecting State Banner */}
+              {isConnecting && (
+                <div className="p-4 rounded-2xl bg-purple-50 border border-purple-200 text-purple-900 text-xs flex items-center gap-3 animate-pulse">
+                  <RefreshCw className="w-5 h-5 text-purple-600 animate-spin flex-shrink-0" />
                   <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-bold text-slate-900 group-hover:text-purple-700 transition-colors">
-                        Connect Injected Web3 Wallet
-                      </h4>
-                      {isEthereumAvailable ? (
-                        <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-300">
-                          Detected
-                        </span>
-                      ) : (
-                        <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-medium">
-                          Browser Wallet
-                        </span>
-                      )}
-                    </div>
-                    <span className="text-[11px] text-slate-600 font-medium">
-                      MetaMask, Rabby, Coinbase Wallet, Verse, Brave
-                    </span>
+                    <p className="font-bold text-purple-900">Requesting Connection Approval...</p>
+                    <p className="text-[11px] text-purple-700 mt-0.5">
+                      Please open your wallet application and approve connecting to IRISME.
+                    </p>
                   </div>
                 </div>
+              )}
 
-                <div className="flex items-center gap-1">
-                  {isConnecting ? (
-                    <RefreshCw className="w-5 h-5 text-purple-600 animate-spin" />
-                  ) : (
-                    <span className="text-xs text-purple-700 font-bold group-hover:translate-x-0.5 transition-transform bg-white px-2.5 py-1 rounded-lg border border-purple-200 shadow-xs">
-                      Connect Wallet →
-                    </span>
-                  )}
-                </div>
-              </button>
+              {/* Wallet Options List */}
+              <div className="space-y-2">
+                {WALLET_OPTIONS.map((wallet) => {
+                  const isThisWalletConnecting = isConnecting && connectingWalletType === wallet.type;
+                  const isInstalled = Web3WalletService.isWalletAvailable(wallet.type);
 
-              {/* Custom 0x Address Option */}
-              <div className="pt-2">
-                {!showCustomInput ? (
-                  <button
-                    onClick={() => setShowCustomInput(true)}
-                    className="text-xs text-slate-500 hover:text-purple-600 transition-colors underline cursor-pointer font-medium"
-                  >
-                    Or look up balances for any public address...
-                  </button>
-                ) : (
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5 animate-fadeIn">
-                    <label className="text-[11px] text-slate-700 block font-bold">
-                      Enter Address to Query Real On-Chain Balances
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="0x..."
-                      value={customAddressInput}
-                      onChange={(e) => setCustomAddressInput(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-300 text-xs font-mono text-slate-900 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 shadow-xs"
-                    />
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="iris"
-                        size="sm"
-                        className="w-full text-xs font-bold"
-                        onClick={() => {
-                          if (customAddressInput.trim().startsWith('0x')) {
-                            handleConnectCustom(customAddressInput.trim());
-                          }
-                        }}
-                      >
-                        Query Real On-Chain Balances
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs border-slate-300 text-slate-700"
-                        onClick={() => setShowCustomInput(false)}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                  return (
+                    <button
+                      key={wallet.type}
+                      onClick={() => handleSelectWallet(wallet.type)}
+                      disabled={isConnecting}
+                      className={`w-full p-3.5 rounded-2xl border transition-all text-left flex items-center justify-between group cursor-pointer ${
+                        isThisWalletConnecting
+                          ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-400/20'
+                          : 'border-slate-200 hover:border-purple-300 hover:bg-purple-50/30 bg-white shadow-xs'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-10 h-10 rounded-xl bg-gradient-to-br ${wallet.iconBg} flex items-center justify-center text-xl shadow-xs flex-shrink-0`}
+                        >
+                          {wallet.icon}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-bold text-slate-900 group-hover:text-purple-700 transition-colors">
+                              {wallet.name}
+                            </h4>
+                            {isInstalled && wallet.type !== 'walletconnect' ? (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold border border-emerald-300">
+                                Installed
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-medium">
+                                {wallet.badge}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+                            {wallet.description}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center pl-2 flex-shrink-0">
+                        {isThisWalletConnecting ? (
+                          <RefreshCw className="w-4 h-4 text-purple-600 animate-spin" />
+                        ) : (
+                          <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 group-hover:translate-x-0.5 transition-all" />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
-              {/* Security Shield Callout */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-start gap-2.5 text-xs text-slate-600">
+              {/* Discovered EIP-6963 Injected Providers (if any additional wallets detected) */}
+              {discoveredProviders.length > 0 && (
+                <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Detected Browser Extensions
+                  </p>
+                  <div className="space-y-1">
+                    {discoveredProviders.map((dp) => (
+                      <button
+                        key={dp.info.uuid || dp.info.rdns}
+                        onClick={() => handleSelectWallet('injected', dp.provider)}
+                        disabled={isConnecting}
+                        className="w-full p-2.5 rounded-xl border border-slate-200 hover:border-purple-300 hover:bg-slate-50 bg-white flex items-center justify-between text-left transition-all cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          {dp.info.icon ? (
+                            <img src={dp.info.icon} alt={dp.info.name} className="w-5 h-5 rounded-md" />
+                          ) : (
+                            <span className="text-base">💼</span>
+                          )}
+                          <span className="text-xs font-bold text-slate-800">{dp.info.name}</span>
+                        </div>
+                        <span className="text-[10px] text-purple-700 font-bold bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200">
+                          Connect →
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Security Shield Notice */}
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 flex items-start gap-2.5 text-xs text-slate-600 mt-3">
                 <ShieldCheck className="w-4 h-4 text-purple-600 flex-shrink-0 mt-0.5" />
-                <p className="leading-relaxed">
-                  Self-custodial & non-custodial. IRISME will <strong className="text-slate-900 font-bold">never</strong> ask for your seed phrases, private keys, or credentials.
+                <p className="text-[11px] leading-relaxed">
+                  Self-custodial & secure. IRISME will <strong className="text-slate-900 font-bold">never</strong> ask for your seed phrases, private keys, or passwords.
                 </p>
               </div>
             </div>

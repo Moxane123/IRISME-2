@@ -13,6 +13,12 @@ import {
   SupportedToken,
   InAppPaymentNotification,
   EssentialPaymentEventType,
+  AdminStats,
+  AdminMerchantItem,
+  AdminTransactionItem,
+  AdminFeeLedgerItem,
+  AdminPlatformFeesSummary,
+  AdminSystemActivity,
 } from '../types';
 
 export interface CampaignValidationResult {
@@ -26,6 +32,7 @@ export interface CampaignValidationResult {
 
 export class ApiService {
   private static authToken: string | null = null;
+  private static adminToken: string | null = null;
 
   static setAuthToken(token: string | null) {
     this.authToken = token;
@@ -48,6 +55,36 @@ export class ApiService {
       'Content-Type': 'application/json',
     };
     const token = this.getAuthToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+  }
+
+  // ==========================================
+  // ADMIN AUTH & HEADERS
+  // ==========================================
+  static setAdminToken(token: string | null) {
+    this.adminToken = token;
+    if (token) {
+      sessionStorage.setItem('irisme_admin_token', token);
+    } else {
+      sessionStorage.removeItem('irisme_admin_token');
+    }
+  }
+
+  static getAdminToken(): string | null {
+    if (this.adminToken) return this.adminToken;
+    const saved = sessionStorage.getItem('irisme_admin_token');
+    if (saved) this.adminToken = saved;
+    return this.adminToken;
+  }
+
+  private static getAdminHeaders(): HeadersInit {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const token = this.getAdminToken();
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
@@ -779,4 +816,193 @@ export class ApiService {
       return { success: false, message: err?.message || 'Email dispatch simulated locally.' };
     }
   }
+
+  // ==========================================
+  // ADMINISTRATIVE & OPERATIONAL MONITORING
+  // ==========================================
+
+  /**
+   * Login as Administrator
+   */
+  static async adminLogin(key: string): Promise<{ success: boolean; token?: string; error?: string }> {
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+      const data = await res.json();
+      if (data.success && data.token) {
+        this.setAdminToken(data.token);
+      }
+      return data;
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Admin login network error' };
+    }
+  }
+
+  /**
+   * Verify Admin Authentication Session
+   */
+  static async verifyAdminSession(): Promise<boolean> {
+    try {
+      const token = this.getAdminToken();
+      if (!token) return false;
+      const res = await fetch('/api/admin/verify', {
+        headers: this.getAdminHeaders(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return Boolean(data.success && data.authenticated);
+      }
+      this.setAdminToken(null);
+      return false;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /**
+   * Admin Logout
+   */
+  static async adminLogout(): Promise<void> {
+    try {
+      await fetch('/api/admin/logout', {
+        method: 'POST',
+        headers: this.getAdminHeaders(),
+      });
+    } catch (err) {
+      // Ignore
+    } finally {
+      this.setAdminToken(null);
+    }
+  }
+
+  /**
+   * Fetch Overview System Statistics
+   */
+  static async getAdminStats(): Promise<{ success: boolean; stats?: AdminStats; error?: string }> {
+    try {
+      const res = await fetch('/api/admin/stats', {
+        headers: this.getAdminHeaders(),
+      });
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to fetch admin stats' };
+    }
+  }
+
+  /**
+   * Fetch All Registered Merchants (Admin Only)
+   */
+  static async getAdminMerchants(): Promise<{ success: boolean; merchants?: AdminMerchantItem[]; error?: string }> {
+    try {
+      const res = await fetch('/api/admin/merchants', {
+        headers: this.getAdminHeaders(),
+      });
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to fetch merchants list' };
+    }
+  }
+
+  /**
+   * Update Merchant Operating Status (Active / Suspended / Pending)
+   */
+  static async updateAdminMerchantStatus(
+    merchantId: string,
+    status: 'active' | 'suspended' | 'pending_verification'
+  ): Promise<{ success: boolean; merchant?: any; error?: string }> {
+    try {
+      const res = await fetch(`/api/admin/merchants/${merchantId}/status`, {
+        method: 'PATCH',
+        headers: this.getAdminHeaders(),
+        body: JSON.stringify({ status }),
+      });
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to update merchant status' };
+    }
+  }
+
+  /**
+   * Fetch All System Payments (Admin Only)
+   */
+  static async getAdminPayments(params?: {
+    status?: string;
+    search?: string;
+  }): Promise<{ success: boolean; payments?: Payment[]; totalCount?: number; error?: string }> {
+    try {
+      const query = new URLSearchParams();
+      if (params?.status) query.append('status', params.status);
+      if (params?.search) query.append('search', params.search);
+
+      const res = await fetch(`/api/admin/payments?${query.toString()}`, {
+        headers: this.getAdminHeaders(),
+      });
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to fetch payments' };
+    }
+  }
+
+  /**
+   * Fetch On-Chain Transactions & Audits (Admin Only)
+   */
+  static async getAdminTransactions(): Promise<{
+    success: boolean;
+    transactions?: AdminTransactionItem[];
+    auditLogs?: VerificationAuditLog[];
+    error?: string;
+  }> {
+    try {
+      const res = await fetch('/api/admin/transactions', {
+        headers: this.getAdminHeaders(),
+      });
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to fetch transactions' };
+    }
+  }
+
+  /**
+   * Fetch Platform Fees Collected & Ledger (Admin Only)
+   */
+  static async getAdminPlatformFees(): Promise<{
+    success: boolean;
+    platformFeePercent?: number;
+    totalFeesCollectedUSD?: number;
+    tokenBreakdown?: Record<string, { tokenAmount: number; usdAmount: number; count: number }>;
+    feeLedger?: AdminFeeLedgerItem[];
+    totalTransactionsCharged?: number;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch('/api/admin/platform-fees', {
+        headers: this.getAdminHeaders(),
+      });
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to fetch platform fees' };
+    }
+  }
+
+  /**
+   * Fetch Basic System Activity Log Stream (Admin Only)
+   */
+  static async getAdminSystemActivity(): Promise<{
+    success: boolean;
+    activities?: AdminSystemActivity[];
+    error?: string;
+  }> {
+    try {
+      const res = await fetch('/api/admin/system-activity', {
+        headers: this.getAdminHeaders(),
+      });
+      return await res.json();
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Failed to fetch system activity' };
+    }
+  }
 }
+

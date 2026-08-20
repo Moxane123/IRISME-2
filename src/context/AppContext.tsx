@@ -164,21 +164,10 @@ interface AppContextType {
     onStatusChange?: (status: PaymentStatus) => void
   ) => Promise<{ success: boolean; txHash: string; verseEarned: number; isRealOnChain?: boolean }>;
 
-  // Interactive Tutorial & Sandbox Demo
-  isTutorialOpen: boolean;
-  tutorialTab: 'customer' | 'merchant';
-  openTutorial: (tab?: 'customer' | 'merchant') => void;
-  closeTutorial: () => void;
-
-  // Real-Time Guided Directional Tour
-  isGuidedTourActive: boolean;
-  guidedTourType: 'customer' | 'merchant';
-  startGuidedTour: (type?: 'customer' | 'merchant') => void;
-  stopGuidedTour: () => void;
-
   // Utility
   resetToDefaults: () => void;
 }
+
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
@@ -238,7 +227,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         chainId: web3.chainId,
         network: chainCfg ? chainCfg.name : `Chain ${web3.chainId}`,
         role: walletRole,
-        walletMode: web3.walletMode,
         isWrongNetwork: web3.isWrongNetwork,
         balances: {
           ...prev.balances,
@@ -250,49 +238,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         ...prev,
         isConnected: false,
         address: '',
-        walletMode: web3.walletMode,
       }));
     }
   }, [
     web3.isConnected,
     web3.address,
     web3.chainId,
-    web3.walletMode,
     web3.isWrongNetwork,
     web3.balances,
     walletRole,
   ]);
 
+
   const [isWalletModalOpen, setIsWalletModalOpen] = useState<boolean>(false);
   
-  // Interactive Tutorial & Sandbox Demo State
-  const [isTutorialOpen, setIsTutorialOpen] = useState<boolean>(false);
-  const [tutorialTab, setTutorialTab] = useState<'customer' | 'merchant'>('customer');
-
-  const openTutorial = (tab: 'customer' | 'merchant' = 'customer') => {
-    setTutorialTab(tab);
-    setIsTutorialOpen(true);
-  };
-
-  const closeTutorial = () => {
-    setIsTutorialOpen(false);
-  };
-
-  // Real-Time Directional Tour State
-  const [isGuidedTourActive, setIsGuidedTourActive] = useState<boolean>(false);
-  const [guidedTourType, setGuidedTourType] = useState<'customer' | 'merchant'>('customer');
-
-  const startGuidedTour = (type: 'customer' | 'merchant' = 'customer') => {
-    setIsTutorialOpen(false); // close modal if open
-    setGuidedTourType(type);
-    setIsGuidedTourActive(true);
-  };
-
-  const stopGuidedTour = () => {
-    setIsGuidedTourActive(false);
-  };
-  
   const [merchantAuthToken, setMerchantAuthToken] = useState<string | null>(() => ApiService.getAuthToken());
+
   const isMerchantAuthenticated = Boolean(merchantAuthToken);
 
   const [merchantProfile, setMerchantProfile] = useState<MerchantProfile>(() => {
@@ -714,11 +675,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [wallet, walletRole, merchantProfile, customerProfile, payments, campaigns, customerLoyaltyCards, customerRewards, loyaltyGoal]);
 
-  const connectWallet = (role?: 'merchant' | 'customer', customAddress?: string) => {
+  const connectWallet = (role?: 'merchant' | 'customer') => {
     if (role) setWalletRole(role);
-    web3.connectDemo(customAddress);
-    setIsWalletModalOpen(false);
+    setIsWalletModalOpen(true);
   };
+
 
   const disconnectWallet = () => {
     web3.disconnect();
@@ -1242,8 +1203,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     // 1. STAGE: TRANSACTION_DETECTED
-    // If connected with real injected EVM wallet, execute real on-chain transaction
-    if (web3.isConnected && web3.walletMode === 'injected' && web3.isAvailable) {
+    // If connected with real Web3 wallet, execute real on-chain transaction
+    if (web3.isConnected && web3.address) {
       onStatusChange?.('submitted');
       updatePaymentStatus(paymentId, 'submitted', {
         customerWallet: web3.address,
@@ -1862,19 +1823,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         claimCustomerRewards,
         claimLoyaltyMilestone,
         processCustomerPayment,
-        isTutorialOpen,
-        tutorialTab,
-        openTutorial,
-        closeTutorial,
-        isGuidedTourActive,
-        guidedTourType,
-        startGuidedTour,
-        stopGuidedTour,
         resetToDefaults,
       }}
     >
       {children}
     </AppContext.Provider>
+
   );
 };
 

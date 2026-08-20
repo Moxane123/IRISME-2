@@ -6,7 +6,6 @@ import { IrisLogo } from './IrisLogo';
 import { Button } from './Button';
 import { TokenLogo } from './TokenLogo';
 import { TokenLogoModal } from './TokenLogoModal';
-import { QRScannerModal } from './QRScannerModal';
 import { NotificationCenter } from './NotificationCenter';
 import { getChainConfig, DEFAULT_CHAIN_ID } from '../../config';
 import {
@@ -19,12 +18,7 @@ import {
   PlusCircle,
   AlertTriangle,
   Sparkles,
-  QrCode,
   CreditCard,
-  KeyRound,
-  Camera,
-  BookOpen,
-  HelpCircle,
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
@@ -32,16 +26,10 @@ export const Navbar: React.FC = () => {
   const {
     wallet,
     setIsWalletModalOpen,
-    isMerchantAuthenticated,
-    merchantProfile,
-    openTutorial,
   } = useApp();
-  const { isConnected, isWrongNetwork, chainId, currentChain } = useWeb3();
+  const { isConnected, isWrongNetwork, chainId, currentChain, address, balances } = useWeb3();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
-  const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
-
-  const isMerchant = currentPath.startsWith('/merchant') || currentPath === '/';
 
   const formatAddress = (addr: string) => {
     if (!addr) return '';
@@ -49,6 +37,7 @@ export const Navbar: React.FC = () => {
   };
 
   const activeChain = currentChain || getChainConfig(DEFAULT_CHAIN_ID);
+  const displayAddress = address || wallet.address;
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white/90 backdrop-blur-md">
@@ -113,26 +102,6 @@ export const Navbar: React.FC = () => {
 
         {/* Right Actions & Wallet */}
         <div className="flex items-center gap-2 sm:gap-2.5">
-          {/* Quick Tutorial & Interactive Demo Trigger */}
-          <button
-            onClick={() => openTutorial('customer')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-purple-200 bg-gradient-to-r from-purple-50 to-pink-50 hover:from-purple-100 hover:to-pink-100 text-xs font-bold text-purple-900 transition-all cursor-pointer shadow-xs"
-            title="Interactive tutorial on how customers pay and how merchants create channels"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-purple-600 animate-pulse" />
-            <span>Tutorial & Demo</span>
-          </button>
-
-          {/* Scan QR Code to Pay Button */}
-          <button
-            onClick={() => setIsScannerModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 transition-colors cursor-pointer shadow-xs"
-            title="Scan customer barcode or QR code to test or pay invoice"
-          >
-            <Camera className="w-3.5 h-3.5 text-[#00D2FE]" />
-            <span className="hidden sm:inline">Scan to Pay</span>
-          </button>
-
           {/* Quick Create Payment CTA for Merchants */}
           <Button
             variant="iris"
@@ -162,7 +131,7 @@ export const Navbar: React.FC = () => {
           {isConnected && (
             <button
               onClick={() => setIsWalletModalOpen(true)}
-              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-mono transition-all ${
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-mono transition-all cursor-pointer ${
                 isWrongNetwork
                   ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100'
                   : 'bg-slate-50 border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-900'
@@ -179,7 +148,7 @@ export const Navbar: React.FC = () => {
           )}
 
           {/* Wallet State Pill */}
-          {isConnected ? (
+          {isConnected && displayAddress ? (
             <button
               onClick={() => setIsWalletModalOpen(true)}
               className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 hover:border-purple-300 transition-all text-xs text-slate-700 group cursor-pointer shadow-sm"
@@ -187,18 +156,18 @@ export const Navbar: React.FC = () => {
               <TokenLogo symbol="VERSE" size="xs" variant="gif" animated={true} />
               <div className="hidden lg:flex items-center gap-1.5 pr-1.5 border-r border-slate-200">
                 <span className="text-[#00D2FE] font-bold font-mono">
-                  {(wallet.balances?.VERSE || 0).toLocaleString()}
+                  {(balances?.VERSE || wallet.balances?.VERSE || 0).toLocaleString()}
                 </span>
                 <span className="text-[10px] text-slate-400 font-bold">VERSE</span>
               </div>
-              <span className="font-mono text-slate-800 font-semibold">{formatAddress(wallet.address)}</span>
+              <span className="font-mono text-slate-800 font-semibold">{formatAddress(displayAddress)}</span>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-900 transition-colors" />
             </button>
           ) : (
             <Button
               variant="iris"
               size="sm"
-              className="flex items-center gap-1.5 text-xs font-bold shadow-md shadow-purple-500/20"
+              className="flex items-center gap-1.5 text-xs font-bold shadow-md shadow-purple-500/20 cursor-pointer"
               onClick={() => setIsWalletModalOpen(true)}
             >
               <Wallet className="w-3.5 h-3.5" />
@@ -219,7 +188,7 @@ export const Navbar: React.FC = () => {
       {/* Mobile Menu Dropdown */}
       {mobileMenuOpen && (
         <div className="md:hidden border-t border-slate-200 bg-white px-4 pt-3 pb-6 space-y-3 shadow-xl animate-fadeIn">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2">
             <button
               onClick={() => {
                 navigate('/merchant');
@@ -233,29 +202,9 @@ export const Navbar: React.FC = () => {
             >
               Merchant Portal
             </button>
-            <button
-              onClick={() => {
-                setIsScannerModalOpen(true);
-                setMobileMenuOpen(false);
-              }}
-              className="p-2.5 rounded-xl text-xs font-bold text-center border bg-slate-50 border-slate-200 text-slate-700 flex items-center justify-center gap-1.5"
-            >
-              <Camera className="w-3.5 h-3.5 text-[#00D2FE]" />
-              <span>Scan Barcode</span>
-            </button>
           </div>
 
           <div className="pt-2 border-t border-slate-100 space-y-1 text-xs">
-            <button
-              onClick={() => {
-                openTutorial('customer');
-                setMobileMenuOpen(false);
-              }}
-              className="w-full text-left px-3 py-2 rounded-lg bg-gradient-to-r from-purple-50 to-pink-50 text-purple-900 font-bold flex items-center gap-2"
-            >
-              <Sparkles className="w-4 h-4 text-purple-600 animate-pulse" />
-              <span>Quick Tutorial & Live Demo</span>
-            </button>
             <button
               onClick={() => {
                 navigate('/merchant/create-payment');
@@ -325,12 +274,6 @@ export const Navbar: React.FC = () => {
         onSelectToken={() => {
           setIsLogoModalOpen(false);
         }}
-      />
-
-      {/* QR & Barcode Scanner Modal */}
-      <QRScannerModal
-        isOpen={isScannerModalOpen}
-        onClose={() => setIsScannerModalOpen(false)}
       />
     </header>
   );

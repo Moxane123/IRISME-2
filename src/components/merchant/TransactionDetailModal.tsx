@@ -33,7 +33,6 @@ interface TransactionDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onPaymentUpdated?: (updated: Payment) => void;
-  onOpenVerificationSuite?: (paymentId?: string) => void;
 }
 
 export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
@@ -41,7 +40,6 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   isOpen,
   onClose,
   onPaymentUpdated,
-  onOpenVerificationSuite,
 }) => {
   const { executeRefund, rejectRefund } = useApp();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -762,21 +760,6 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
             >
               {copiedKey === 'checkout' ? 'Link Copied!' : 'Copy Checkout URL'}
             </Button>
-
-            {onOpenVerificationSuite && (
-              <Button
-                variant="ghost"
-                size="sm"
-                leftIcon={<ShieldCheck className="w-3.5 h-3.5 text-purple-600" />}
-                onClick={() => {
-                  onClose();
-                  onOpenVerificationSuite(payment.id);
-                }}
-                className="cursor-pointer text-xs text-purple-700 hover:bg-purple-50"
-              >
-                Verification Suite
-              </Button>
-            )}
           </div>
 
           <div className="flex items-center gap-2">

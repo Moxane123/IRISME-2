@@ -29,8 +29,8 @@ export const MerchantAuthPage: React.FC<{ defaultMode?: 'login' | 'register' }> 
   defaultMode = 'login',
 }) => {
   const { navigate } = useRouter();
-  const { loginMerchant, registerMerchant, isMerchantAuthenticated, merchantProfile, openTutorial } = useApp();
-  const { address: connectedWalletAddress, isConnected, connectDemo } = useWeb3();
+  const { loginMerchant, registerMerchant, isMerchantAuthenticated, merchantProfile } = useApp();
+  const { address: connectedWalletAddress, isConnected } = useWeb3();
 
   const [mode, setMode] = useState<'login' | 'register'>(defaultMode);
   const [loading, setLoading] = useState<boolean>(false);
@@ -85,21 +85,21 @@ export const MerchantAuthPage: React.FC<{ defaultMode?: 'login' | 'register' }> 
     }
   };
 
+  const { setIsWalletModalOpen } = useApp();
+
   const handleWalletLogin = async () => {
     setErrorMessage(null);
     setSuccessMessage(null);
+
+    if (!connectedWalletAddress) {
+      setIsWalletModalOpen(true);
+      return;
+    }
+
     setLoading(true);
-
     try {
-      let targetAddr = connectedWalletAddress;
-      if (!targetAddr) {
-        // Connect demo or injected
-        connectDemo('0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093');
-        targetAddr = '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093';
-      }
-
       const res = await loginMerchant({
-        settlementAddress: targetAddr,
+        settlementAddress: connectedWalletAddress,
       });
 
       if (res.success) {
@@ -118,6 +118,7 @@ export const MerchantAuthPage: React.FC<{ defaultMode?: 'login' | 'register' }> 
       setLoading(false);
     }
   };
+
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,16 +230,8 @@ export const MerchantAuthPage: React.FC<{ defaultMode?: 'login' | 'register' }> 
             Create New Merchant Account
           </button>
         </div>
-
-        <button
-          type="button"
-          onClick={() => openTutorial('merchant')}
-          className="px-4 py-2.5 rounded-2xl bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-purple-600 animate-pulse" />
-          <span>Quick Setup Tutorial</span>
-        </button>
       </div>
+
 
       {/* Alerts */}
       {errorMessage && (

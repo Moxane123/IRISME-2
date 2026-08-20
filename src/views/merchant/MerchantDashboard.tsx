@@ -6,7 +6,6 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardContent } from '../../components/ui/Card';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { TokenLogo } from '../../components/ui/TokenLogo';
-import { VerificationTestSuiteModal } from '../../components/verification/VerificationTestSuiteModal';
 import { SettleModal } from '../../components/merchant/SettleModal';
 import { getExplorerTxUrl } from '../../config';
 import {
@@ -27,7 +26,6 @@ import {
   RefreshCw,
   History,
   CheckCircle2,
-  Sparkles,
 } from 'lucide-react';
 
 export const MerchantDashboard: React.FC = () => {
@@ -38,15 +36,14 @@ export const MerchantDashboard: React.FC = () => {
     settlements,
     merchantBalance,
     refreshSettlementBalance,
-    openTutorial,
   } = useApp();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedMerchantId, setCopiedMerchantId] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
-  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
   const [transactionFilter, setTransactionFilter] = useState<'all' | 'successful' | 'pending' | 'settlements'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
+
 
   // Merchant data isolation
   const merchantId = merchantProfile.id || 'm-iris-merchant-default';
@@ -169,17 +166,6 @@ export const MerchantDashboard: React.FC = () => {
 
         {/* PRIMARY ACTIONS */}
         <div className="flex flex-wrap items-center gap-3 flex-shrink-0 z-10 w-full lg:w-auto">
-          {/* Tutorial & Demo Button */}
-          <Button
-            variant="secondary"
-            size="lg"
-            leftIcon={<Sparkles className="w-4 h-4 text-purple-600 animate-pulse" />}
-            onClick={() => openTutorial('merchant')}
-            className="cursor-pointer border-purple-200 bg-purple-50/50 hover:bg-purple-100/70 text-purple-900 font-bold shadow-xs flex-1 sm:flex-none text-sm px-4 py-3"
-          >
-            TUTORIAL & DEMO
-          </Button>
-
           {/* 1. Settle Funds Action */}
           <Button
             variant="outline"
@@ -212,15 +198,6 @@ export const MerchantDashboard: React.FC = () => {
           >
             TRANSACTIONS
           </Button>
-
-          {/* Verification Suite Test Modal Trigger */}
-          <button
-            onClick={() => setIsVerificationModalOpen(true)}
-            className="p-2.5 rounded-xl border border-slate-200 hover:border-slate-300 text-slate-500 hover:text-purple-700 bg-slate-50 transition-colors cursor-pointer"
-            title="Open Blockchain Verification Test Suite"
-          >
-            <ShieldCheck className="w-4 h-4" />
-          </button>
         </div>
       </div>
 
@@ -239,7 +216,8 @@ export const MerchantDashboard: React.FC = () => {
           </button>
         </div>
 
-        <div data-tour="merchant-dashboard-stats" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
           {/* 1. Available Balance */}
           <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 relative overflow-hidden shadow-xs space-y-2">
             <div className="flex items-center justify-between text-emerald-800">
@@ -550,12 +528,7 @@ export const MerchantDashboard: React.FC = () => {
         isOpen={isSettleModalOpen}
         onClose={() => setIsSettleModalOpen(false)}
       />
-
-      {/* Verification Engine Test Suite Modal */}
-      <VerificationTestSuiteModal
-        isOpen={isVerificationModalOpen}
-        onClose={() => setIsVerificationModalOpen(false)}
-      />
     </div>
   );
 };
+

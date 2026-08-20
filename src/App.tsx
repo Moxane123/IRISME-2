@@ -7,8 +7,6 @@ import { Sidebar } from './components/ui/Sidebar';
 import { MobileNav } from './components/ui/MobileNav';
 import { WalletModal } from './components/ui/WalletModal';
 import { WrongNetworkBanner } from './components/ui/WrongNetworkBanner';
-import { InteractiveTutorialModal } from './components/tutorial/InteractiveTutorialModal';
-import { GuidedTourEngine } from './components/tutorial/GuidedTourEngine';
 
 // Views
 import { LandingPage } from './views/LandingPage';
@@ -23,21 +21,15 @@ import { MerchantCampaigns } from './views/merchant/MerchantCampaigns';
 import { CustomerPaymentPage } from './views/customer/CustomerPaymentPage';
 import { TransferPage } from './views/transfer/TransferPage';
 import { SettingsPage } from './views/SettingsPage';
+import { AdminDashboard } from './views/admin/AdminDashboard';
 
 const AppContent: React.FC = () => {
   const { currentPath } = useRouter();
-  const {
-    isTutorialOpen,
-    tutorialTab,
-    closeTutorial,
-    isGuidedTourActive,
-    guidedTourType,
-    stopGuidedTour,
-  } = useApp();
 
   const isPayRoute = currentPath.startsWith('/pay');
   const isTransferRoute = currentPath === '/transfer';
   const isLandingRoute = currentPath === '/';
+  const isAdminRoute = currentPath.startsWith('/admin');
 
   const renderCurrentView = () => {
     // 1. Landing Page
@@ -55,7 +47,12 @@ const AppContent: React.FC = () => {
       return <TransferPage />;
     }
 
-    // 4. Merchant Routes
+    // 4. Admin Portal (/admin) - Server-Side Protected Operations Monitor
+    if (isAdminRoute) {
+      return <AdminDashboard />;
+    }
+
+    // 5. Merchant Routes
     if (currentPath === '/merchant/login') {
       return <MerchantAuthPage defaultMode="login" />;
     }
@@ -84,7 +81,7 @@ const AppContent: React.FC = () => {
       return <MerchantCampaigns />;
     }
 
-    // 5. Settings
+    // 6. Settings
     if (currentPath === '/settings') {
       return <SettingsPage />;
     }
@@ -103,13 +100,13 @@ const AppContent: React.FC = () => {
 
       {/* Main Layout Container */}
       <div className="flex-1 flex w-full">
-        {/* Sidebar on App Pages, hidden on Landing and Dedicated Checkout */}
-        {!isLandingRoute && !isPayRoute && <Sidebar />}
+        {/* Sidebar on App Pages, hidden on Landing, Dedicated Checkout, and Full-Width Admin Dashboard */}
+        {!isLandingRoute && !isPayRoute && !isAdminRoute && <Sidebar />}
 
         {/* View Content Area */}
         <main
           className={`flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full ${
-            !isLandingRoute && !isPayRoute ? 'pb-24 md:pb-8' : ''
+            !isLandingRoute && !isPayRoute && !isAdminRoute ? 'pb-24 md:pb-8' : ''
           }`}
         >
           {renderCurrentView()}
@@ -121,23 +118,10 @@ const AppContent: React.FC = () => {
 
       {/* Web3 Wallet Modal */}
       <WalletModal />
-
-      {/* Global Interactive Tutorial & Live Sandbox Demo */}
-      <InteractiveTutorialModal
-        isOpen={isTutorialOpen}
-        onClose={closeTutorial}
-        defaultTab={tutorialTab}
-      />
-
-      {/* Real-Time Guided Walkthrough with Animated Directional Pointer Hand */}
-      <GuidedTourEngine
-        isActive={isGuidedTourActive}
-        tourType={guidedTourType}
-        onClose={stopGuidedTour}
-      />
     </div>
   );
 };
+
 
 export function App() {
   return (

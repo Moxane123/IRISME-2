@@ -76,7 +76,11 @@ export const TOKEN_CONFIGS: Record<SupportedToken, TokenAddressConfig> = {
     icon: '⚡',
     color: '#00D2FE',
     addresses: {
-      137: import.meta.env.VITE_VERSE_TOKEN_POLYGON || '0xc708d6f2153933daa50b2d0758955be0a93a8fec',
+      137:
+        import.meta.env.VITE_VERSE_TOKEN_CONTRACT ||
+        import.meta.env.VITE_VERSE_TOKEN_POLYGON ||
+        '0xc708d6f2153933daa50b2d0758955be0a93a8fec',
+
       1: import.meta.env.VITE_VERSE_TOKEN_ETHEREUM || '0x249ca82617ec3dfb2589c4c17ab7ec9765350a18',
     },
   },

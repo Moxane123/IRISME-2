@@ -23,8 +23,10 @@ export const REWARD_DISTRIBUTOR_CONTRACTS: Record<number, string> = {
 
 // Payment Router ABI for on-chain direct and routed merchant settlement
 export const PAYMENT_ROUTER_ABI = [
+  'function pay(address merchant, uint256 amount, bytes32 paymentId) external',
   'function payMerchant(address merchant, address token, uint256 amount, string invoiceId) external payable',
   'function payMerchantWithReward(address merchant, address paymentToken, uint256 paymentAmount, uint256 verseCashback, string invoiceId) external payable',
+  'event Payment(address indexed payer, address indexed merchant, uint256 amount, bytes32 indexed paymentId)',
   'event PaymentProcessed(address indexed customer, address indexed merchant, address token, uint256 amount, string invoiceId, uint256 timestamp)',
 ];
 
@@ -36,10 +38,27 @@ export const REWARD_DISTRIBUTOR_ABI = [
   'event RewardsClaimed(address indexed customer, uint256 amount, uint256 timestamp)',
 ];
 
-export const getPaymentRouterAddress = (chainId: number): string | undefined => {
+export const getPaymentRouterAddress = (chainId: number = 137): string | undefined => {
+  if (chainId === 137 && import.meta.env.VITE_PAYMENT_ROUTER_CONTRACT) {
+    return import.meta.env.VITE_PAYMENT_ROUTER_CONTRACT;
+  }
   return PAYMENT_ROUTER_CONTRACTS[chainId] || undefined;
 };
 
-export const getRewardDistributorAddress = (chainId: number): string | undefined => {
+export const getVerseTokenContractAddress = (chainId: number = 137): string => {
+  if (chainId === 137) {
+    return (
+      import.meta.env.VITE_VERSE_TOKEN_CONTRACT ||
+      import.meta.env.VITE_VERSE_TOKEN_POLYGON ||
+      '0xc708d6f2153933daa50b2d0758955be0a93a8fec'
+    );
+  }
+  return (
+    import.meta.env.VITE_VERSE_TOKEN_ETHEREUM ||
+    '0x249ca82617ec3dfb2589c4c17ab7ec9765350a18'
+  );
+};
+
+export const getRewardDistributorAddress = (chainId: number = 137): string | undefined => {
   return REWARD_DISTRIBUTOR_CONTRACTS[chainId] || undefined;
 };

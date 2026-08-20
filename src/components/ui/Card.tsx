@@ -35,16 +35,25 @@ export const Card: React.FC<CardProps> = ({
 };
 
 export const CardHeader: React.FC<{
-  title: ReactNode;
+  title?: ReactNode;
   subtitle?: ReactNode;
   action?: ReactNode;
+  icon?: ReactNode;
+  children?: ReactNode;
   className?: string;
-}> = ({ title, subtitle, action, className = '' }) => {
+}> = ({ title, subtitle, action, icon, children, className = '' }) => {
+  if (children) {
+    return <div className={`p-5 pb-3.5 border-b border-slate-100 ${className}`}>{children}</div>;
+  }
+
   return (
     <div className={`p-5 pb-3.5 flex items-start justify-between gap-4 border-b border-slate-100 ${className}`}>
-      <div>
-        <h3 className="text-base font-bold text-slate-900 tracking-tight">{title}</h3>
-        {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+      <div className="flex items-start gap-2.5">
+        {icon && <div className="mt-0.5 text-purple-600 flex-shrink-0">{icon}</div>}
+        <div>
+          {title && <h3 className="text-base font-bold text-slate-900 tracking-tight">{title}</h3>}
+          {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+        </div>
       </div>
       {action && <div className="flex-shrink-0">{action}</div>}
     </div>
@@ -62,10 +71,5 @@ export const CardFooter: React.FC<{
   children: ReactNode;
   className?: string;
 }> = ({ children, className = '' }) => {
-  return (
-    <div className={`p-4 px-5 border-t border-slate-100 bg-slate-50/70 rounded-b-2xl flex items-center justify-between text-xs text-slate-600 ${className}`}>
-      {children}
-    </div>
-  );
+  return <div className={`p-5 pt-3.5 border-t border-slate-100 ${className}`}>{children}</div>;
 };
-

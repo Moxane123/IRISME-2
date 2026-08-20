@@ -9,10 +9,33 @@
     <meta property="og:description" content="IRISME helps merchants accept crypto, reward customers with VERSE, and build wallet-based loyalty." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      /* Safe polyfill compatibility guard for iframe environments */
+      (function() {
+        try {
+          var props = ['fetch', 'Headers', 'Request', 'Response', 'DOMException'];
+          for (var i = 0; i < props.length; i++) {
+            (function(p) {
+              try {
+                var currentVal = window[p];
+                var desc = Object.getOwnPropertyDescriptor(window, p) || (window.__proto__ ? Object.getOwnPropertyDescriptor(window.__proto__, p) : null);
+                if (desc && (!desc.writable && !desc.set)) {
+                  Object.defineProperty(window, p, {
+                    get: function() { return currentVal; },
+                    set: function(v) { currentVal = v; },
+                    configurable: true,
+                    enumerable: true
+                  });
+                }
+              } catch (e) {}
+            })(props[i]);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useRouter } from '../../context/RouterContext';
 import { useApp } from '../../context/AppContext';
 import { ReputationService } from '../../services/reputationService';
-import { QRScannerModal } from './QRScannerModal';
 import {
   LayoutDashboard,
   CreditCard,
@@ -12,14 +11,9 @@ import {
   Flame,
   Settings,
   Store,
-  QrCode,
-  ExternalLink,
   ShieldCheck,
   KeyRound,
-  UserCheck,
-  Camera,
   ArrowLeftRight,
-  Sparkles,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -44,10 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = () => {
     payments,
     customerLoyaltyCards,
     isMerchantAuthenticated,
-    openTutorial,
   } = useApp();
-
-  const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   const pendingPaymentsCount = payments.filter(
     (p) => p.status === 'awaiting_payment' || p.status === 'pending'
@@ -62,15 +53,6 @@ export const Sidebar: React.FC<SidebarProps> = () => {
       icon: <LayoutDashboard className="w-4 h-4" />,
     },
     {
-      label: 'Quick Tutorial & Demo',
-      path: '#tutorial',
-      icon: <Sparkles className="w-4 h-4 text-purple-600 animate-pulse" />,
-      badge: 'Guide',
-      badgeColor: 'bg-purple-50 text-purple-700 border-purple-200',
-      isAction: true,
-      action: () => openTutorial('merchant'),
-    },
-    {
       label: 'Create Payment Request',
       path: '/merchant/create-payment',
       icon: <PlusCircle className="w-4 h-4" />,
@@ -82,15 +64,6 @@ export const Sidebar: React.FC<SidebarProps> = () => {
       icon: <CreditCard className="w-4 h-4" />,
       badge: pendingPaymentsCount > 0 ? `${pendingPaymentsCount} awaiting` : undefined,
       badgeColor: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-    },
-    {
-      label: 'Scan QR / Barcode',
-      path: '#scan',
-      icon: <Camera className="w-4 h-4 text-[#00D2FE]" />,
-      badge: 'Scan & Pay',
-      badgeColor: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-      isAction: true,
-      action: () => setIsScannerOpen(true),
     },
     {
       label: 'Multi-Chain Transfer',
@@ -131,106 +104,110 @@ export const Sidebar: React.FC<SidebarProps> = () => {
   ];
 
   return (
-    <>
-      <aside className="w-64 flex-shrink-0 hidden md:flex flex-col border-r border-slate-200 bg-white min-h-[calc(100vh-4rem)] p-4 justify-between">
-        <div className="space-y-6">
-          {/* Merchant Profile Card */}
-          <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-purple-500/10 via-pink-500/10 to-transparent pointer-events-none rounded-full blur-xl" />
+    <aside className="w-64 flex-shrink-0 hidden md:flex flex-col border-r border-slate-200 bg-white min-h-[calc(100vh-4rem)] p-4 justify-between">
+      <div className="space-y-6">
+        {/* Merchant Profile Card */}
+        <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-purple-500/10 via-pink-500/10 to-transparent pointer-events-none rounded-full blur-xl" />
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs bg-gradient-to-br from-cyan-500/20 to-purple-500/20 text-cyan-600 border border-cyan-300">
-                  <Store className="w-3.5 h-3.5" />
-                </div>
-                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Merchant Portal
-                </span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs bg-gradient-to-br from-cyan-500/20 to-purple-500/20 text-cyan-600 border border-cyan-300">
+                <Store className="w-3.5 h-3.5" />
               </div>
-              <span className="w-2 h-2 rounded-full bg-[#00D2FE]" />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold text-slate-900 truncate">
-                {merchantProfile.name || 'Merchant Account'}
-              </p>
-              <span
-                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${reputationStats.currentTier.bgColor} ${reputationStats.currentTier.textColor} ${reputationStats.currentTier.borderColor}`}
-              >
-                {reputationStats.currentTier.badge} {reputationStats.currentTier.name}
+              <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Merchant Portal
               </span>
             </div>
-
-            <div className="flex items-center justify-between text-[10px] font-mono text-slate-500">
-              <span>Settlement:</span>
-              <span
-                className="font-bold text-slate-700 truncate max-w-[110px]"
-                title={merchantProfile.settlementAddress}
-              >
-                {merchantProfile.settlementAddress
-                  ? `${merchantProfile.settlementAddress.slice(0, 6)}...${merchantProfile.settlementAddress.slice(-4)}`
-                  : 'Not Set'}
-              </span>
-            </div>
+            <span className="w-2 h-2 rounded-full bg-[#00D2FE]" />
           </div>
 
-          {/* Navigation Links */}
-          <nav className="space-y-1">
-            {merchantLinks.map((link) => {
-              const isActive = currentPath === link.path;
-              return (
-                <button
-                  key={link.label}
-                  onClick={() => {
-                    if (link.isAction && link.action) {
-                      link.action();
-                    } else {
-                      navigate(link.path);
-                    }
-                  }}
-                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    link.highlight
-                      ? 'bg-gradient-to-r from-[#00D2FE]/10 via-[#7C3AED]/10 to-[#FF0080]/10 border border-purple-200 text-purple-700 hover:border-purple-400 font-bold'
-                      : isActive
-                      ? 'bg-purple-50 text-purple-700 border border-purple-200/80 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    <span className={isActive || link.highlight ? 'text-purple-600' : 'text-slate-400'}>
-                      {link.icon}
-                    </span>
-                    <span className="truncate">{link.label}</span>
-                  </div>
-                  {link.badge && (
-                    <span
-                      className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
-                        link.badgeColor || 'bg-slate-100 text-slate-600 border-slate-200'
-                      }`}
-                    >
-                      {link.badge}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold text-slate-900 truncate">
+              {merchantProfile.name || 'Merchant Account'}
+            </p>
+            <span
+              className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${reputationStats.currentTier.bgColor} ${reputationStats.currentTier.textColor} ${reputationStats.currentTier.borderColor}`}
+            >
+              {reputationStats.currentTier.badge} {reputationStats.currentTier.name}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between text-[10px] font-mono text-slate-500">
+            <span>Settlement:</span>
+            <span
+              className="font-bold text-slate-700 truncate max-w-[110px]"
+              title={merchantProfile.settlementAddress}
+            >
+              {merchantProfile.settlementAddress
+                ? `${merchantProfile.settlementAddress.slice(0, 6)}...${merchantProfile.settlementAddress.slice(-4)}`
+                : 'Not Set'}
+            </span>
+          </div>
         </div>
 
-        {/* Footer / Settlement Security Badge */}
-        <div className="p-3.5 rounded-2xl bg-gradient-to-br from-slate-50 to-purple-50/30 border border-slate-200 space-y-2 text-xs">
+        {/* Navigation Links */}
+        <nav className="space-y-1">
+          {merchantLinks.map((link) => {
+            const isActive = currentPath === link.path;
+            return (
+              <button
+                key={link.label}
+                onClick={() => {
+                  if (link.isAction && link.action) {
+                    link.action();
+                  } else {
+                    navigate(link.path);
+                  }
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  link.highlight
+                    ? 'bg-gradient-to-r from-[#00D2FE]/10 via-[#7C3AED]/10 to-[#FF0080]/10 border border-purple-200 text-purple-700 hover:border-purple-400 font-bold'
+                    : isActive
+                    ? 'bg-purple-50 text-purple-700 border border-purple-200/80 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 truncate">
+                  <span className={isActive || link.highlight ? 'text-purple-600' : 'text-slate-400'}>
+                    {link.icon}
+                  </span>
+                  <span className="truncate">{link.label}</span>
+                </div>
+                {link.badge && (
+                  <span
+                    className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                      link.badgeColor || 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    {link.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* Footer / Settlement Security Badge */}
+      <div className="p-3.5 rounded-2xl bg-gradient-to-br from-slate-50 to-purple-50/30 border border-slate-200 space-y-2 text-xs">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 font-bold text-slate-900 text-[11px]">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
             <span>Non-Custodial Protocol</span>
           </div>
-          <p className="text-[10px] text-slate-500 leading-tight">
-            Direct on-chain settlements on Verse L2 & Polygon. Zero customer registration required.
-          </p>
+          <button
+            onClick={() => navigate('/admin')}
+            className="text-[10px] text-purple-700 hover:text-purple-900 font-mono font-bold hover:underline cursor-pointer"
+            title="Protected Server-Side System Admin"
+          >
+            Admin Ops
+          </button>
         </div>
-      </aside>
-
-      {/* QR & Barcode Scanner Modal */}
-      <QRScannerModal isOpen={isScannerOpen} onClose={() => setIsScannerOpen(false)} />
-    </>
+        <p className="text-[10px] text-slate-500 leading-tight">
+          Direct on-chain settlements on Verse L2 & Polygon. Zero customer registration required.
+        </p>
+      </div>
+    </aside>
   );
 };

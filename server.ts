@@ -1,7 +1,20 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { ethers } from 'ethers';
 import { createServer as createViteServer } from 'vite';
+
+const __filename = typeof import.meta.url === 'string' ? fileURLToPath(import.meta.url) : '';
+const __dirname = __filename ? path.dirname(__filename) : process.cwd();
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
 
 // In-Memory Database for Buildathon MVP
 interface ServerMerchant {
@@ -556,12 +569,21 @@ async function startServer() {
       expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 days
     });
 
+    logSystemActivity(
+      'MERCHANT_REGISTER',
+      `Merchant Registered: ${trimmedName}`,
+      `New merchant account created (${trimmedEmail}) with settlement wallet ${trimmedSettlement ? trimmedSettlement.slice(0, 8) + '...' : 'pending'}.`,
+      'success',
+      { merchantId, email: trimmedEmail }
+    );
+
     res.status(201).json({
       success: true,
       token,
       merchant: sanitizeMerchant(newMerchant),
       message: 'Merchant account registered successfully.',
     });
+
   });
 
   // Login Merchant (Email & Password OR Connected Settlement Wallet)
@@ -2066,6 +2088,14 @@ async function startServer() {
         tokenSymbol: expectedToken,
         txHash: normalizedTxHash,
       });
+
+      logSystemActivity(
+        'PAYMENT_PAID',
+        `Payment Confirmed: #${payment.invoiceNumber || paymentId}`,
+        `Payment of $${(payment.amountUSD || expectedAmount).toFixed(2)} (${expectedAmount} ${expectedToken}) verified on-chain. Fee collected: $${((payment.amountUSD || expectedAmount) * 0.005).toFixed(4)}.`,
+        'success',
+        { paymentId, txHash: normalizedTxHash, amountUSD: payment.amountUSD || expectedAmount }
+      );
     } else if (!overallVerified) {
       if (payment.status !== 'confirmed' && payment.status !== 'paid') {
         payment.status = isExpired ? 'expired' : 'failed';
@@ -2084,7 +2114,16 @@ async function startServer() {
             tokenSymbol: expectedToken,
             txHash: normalizedTxHash || undefined,
           });
+
+          logSystemActivity(
+            'PAYMENT_EXPIRED',
+            `Payment Expired: #${payment.invoiceNumber || paymentId}`,
+            `Payment request timed out without receiving valid on-chain confirmation.`,
+            'warning',
+            { paymentId }
+          );
         } else {
+
           emitEssentialInAppNotification({
             eventType: 'payment_failed',
             paymentId,
@@ -2745,10 +2784,22 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const candidatePaths = [
+      path.resolve(process.cwd(), 'dist'),
+      path.resolve(__dirname, '..', 'dist'),
+      path.resolve(__dirname),
+      path.join(process.cwd()),
+    ];
+    const distPath = candidatePaths.find((p) => fs.existsSync(path.join(p, 'index.html'))) || path.resolve(process.cwd(), 'dist');
+
     app.use(express.static(distPath));
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      const indexPath = path.join(distPath, 'index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(200).send('<!DOCTYPE html><html><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><title>IRISME</title></head><body><div id="root"></div></body></html>');
+      }
     });
   }
 

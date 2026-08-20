@@ -8,7 +8,6 @@ import { TokenLogo } from '../../components/ui/TokenLogo';
 import { Payment } from '../../types';
 import { getChainConfig, getExplorerTxUrl } from '../../config';
 import { TransactionDetailModal } from '../../components/merchant/TransactionDetailModal';
-import { VerificationTestSuiteModal } from '../../components/verification/VerificationTestSuiteModal';
 import { SettleModal } from '../../components/merchant/SettleModal';
 import {
   Search,
@@ -38,16 +37,15 @@ export const MerchantPayments: React.FC = () => {
   // Search & Filter State
   const [activeTab, setActiveTab] = useState<'payments' | 'settlements'>('payments');
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'pending' | 'failed' | 'expired'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'pending' | 'failed' | 'expired' | 'refunded'>('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7days' | '30days'>('all');
   const [tokenFilter, setTokenFilter] = useState<string>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Modal State
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
-  const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
-  const [verificationInitialId, setVerificationInitialId] = useState<string | undefined>(undefined);
+
 
   // Merchant data isolation
   const merchantId = merchantProfile.id || 'm-iris-merchant-default';
@@ -98,11 +96,12 @@ export const MerchantPayments: React.FC = () => {
         (p.refundDetails?.refundTxHash && p.refundDetails.refundTxHash.toLowerCase().includes(search));
 
       let matchesStatus = true;
-      if (statusFilter === 'confirmed') matchesStatus = isConfirmed(p.status) && p.status !== 'refunded';
+      if (statusFilter === 'confirmed') matchesStatus = isConfirmed(p.status) && (p.status as string) !== 'refunded';
       else if (statusFilter === 'pending') matchesStatus = isPending(p.status);
       else if (statusFilter === 'failed') matchesStatus = isFailed(p.status);
       else if (statusFilter === 'expired') matchesStatus = isExpired(p.status);
       else if (statusFilter === 'refunded') matchesStatus = isRefundStatus(p);
+
 
       let matchesDate = true;
       const createdTime = new Date(p.createdAt).getTime();
@@ -132,11 +131,6 @@ export const MerchantPayments: React.FC = () => {
     setSelectedPayment(updated);
   };
 
-  const handleOpenVerificationSuite = (paymentId?: string) => {
-    setVerificationInitialId(paymentId);
-    setIsVerificationModalOpen(true);
-  };
-
   return (
     <div className="space-y-6">
       {/* Header & Primary Actions */}
@@ -159,16 +153,6 @@ export const MerchantPayments: React.FC = () => {
             className="cursor-pointer border-emerald-300 hover:border-emerald-500 bg-emerald-50 text-emerald-900 shadow-xs text-xs font-bold"
           >
             Settle Funds
-          </Button>
-
-          <Button
-            variant="secondary"
-            size="md"
-            leftIcon={<ShieldCheck className="w-4 h-4 text-purple-600" />}
-            onClick={() => handleOpenVerificationSuite()}
-            className="cursor-pointer border-slate-300 text-slate-800 hover:bg-slate-50 shadow-xs text-xs font-semibold"
-          >
-            Verification Suite
           </Button>
 
           <Button
@@ -644,15 +628,8 @@ export const MerchantPayments: React.FC = () => {
         payment={selectedPayment}
         onClose={() => setSelectedPayment(null)}
         onPaymentUpdated={handlePaymentUpdated}
-        onOpenVerificationSuite={handleOpenVerificationSuite}
-      />
-
-      {/* Verification Engine Test Suite & Inspector Modal */}
-      <VerificationTestSuiteModal
-        isOpen={isVerificationModalOpen}
-        onClose={() => setIsVerificationModalOpen(false)}
-        initialPaymentId={verificationInitialId || selectedPayment?.id}
       />
     </div>
   );
 };
+

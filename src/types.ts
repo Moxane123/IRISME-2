@@ -591,3 +591,77 @@ export interface VerificationAuditLog {
   reason?: string;
   ipAddress?: string;
 }
+
+// ==========================================
+// ADMINISTRATIVE & PLATFORM MONITORING TYPES
+// ==========================================
+
+export interface AdminStats {
+  totalMerchants: number;
+  activeMerchants: number;
+  suspendedMerchants: number;
+  pendingMerchants: number;
+  totalPayments: number;
+  paymentsByStatus: {
+    paid: number;
+    pending: number;
+    expired: number;
+    refunded: number;
+    failed: number;
+  };
+  totalVolumeUSD: number;
+  totalPlatformFeesUSD: number;
+  platformFeeRatePercent: number;
+  totalOnChainTransactions: number;
+  totalSettlementsCount: number;
+  serverUptimeSeconds: number;
+  systemStatus: 'OPERATIONAL' | 'DEGRADED' | 'MAINTENANCE';
+  lastUpdated: string;
+}
+
+export interface AdminMerchantItem extends MerchantProfile {
+  paymentsCount: number;
+  totalVolumeUSD: number;
+}
+
+export interface AdminTransactionItem {
+  txHash: string;
+  paymentId: string;
+  chainId: number;
+  amount: number;
+  token: string;
+  payerAddress?: string;
+  merchantAddress?: string;
+  verifiedAt: string;
+}
+
+export interface AdminFeeLedgerItem {
+  paymentId: string;
+  merchantId: string;
+  merchantName: string;
+  orderRef: string;
+  grossAmountUSD: number;
+  feeAmountUSD: number;
+  tokenSymbol: string;
+  feeTokenAmount: number;
+  timestamp: string;
+  txHash?: string;
+}
+
+export interface AdminPlatformFeesSummary {
+  platformFeePercent: number;
+  totalFeesCollectedUSD: number;
+  tokenBreakdown: Record<string, { tokenAmount: number; usdAmount: number; count: number }>;
+  feeLedger: AdminFeeLedgerItem[];
+  totalTransactionsCharged: number;
+}
+
+export interface AdminSystemActivity {
+  id: string;
+  timestamp: string;
+  type: 'MERCHANT_REGISTER' | 'MERCHANT_STATUS' | 'PAYMENT_CREATED' | 'PAYMENT_PAID' | 'PAYMENT_EXPIRED' | 'SETTLEMENT_EXECUTED' | 'SYSTEM_EVENT';
+  title: string;
+  details: string;
+  severity: 'info' | 'success' | 'warning' | 'alert';
+  metadata?: Record<string, any>;
+}

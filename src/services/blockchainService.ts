@@ -538,4 +538,45 @@ export class BlockchainService {
 
     return this.submitPayment(prepared);
   }
+
+  /**
+   * Complete payment helper combining preparation and wallet submission
+   */
+  public static async executePayment(params: {
+    fromAddress: string;
+    merchantSettlementAddress: string;
+    token: SupportedToken;
+    tokenAmount: number;
+    chainId: number;
+    onStatusChange?: (status: TxLifecycleStatus, txHash?: string) => void;
+  }): Promise<SubmittedTransactionReceipt> {
+    const prepared = await this.preparePayment({
+      fromAddress: params.fromAddress,
+      merchantSettlementAddress: params.merchantSettlementAddress,
+      token: params.token,
+      tokenAmount: params.tokenAmount,
+      chainId: params.chainId,
+    });
+    return this.submitPayment(prepared, params.onStatusChange);
+  }
+
+  /**
+   * Dedicated VERSE payment flow helper on Polygon Mainnet (Chain 137)
+   */
+  public static async executeVersePayment(params: {
+    merchantAddress: string;
+    verseAmount: number | string;
+    onStatusChange?: (status: string, txHash?: string) => void;
+  }) {
+    const { VersePaymentService } = await import('./versePaymentService');
+    return VersePaymentService.executePayment({
+      merchantAddress: params.merchantAddress,
+      verseAmount: params.verseAmount,
+      onStepUpdate: (update) => {
+        params.onStatusChange?.(update.message, update.txHash);
+      },
+    });
+  }
 }
+
+

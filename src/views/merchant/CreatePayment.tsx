@@ -43,7 +43,7 @@ const EXPIRATION_OPTIONS = [
 
 export const CreatePayment: React.FC = () => {
   const { navigate } = useRouter();
-  const { createPayment, merchantProfile, getPaymentById, openTutorial } = useApp();
+  const { createPayment, merchantProfile, getPaymentById } = useApp();
 
   const [amount, setAmount] = useState<string>('25.00');
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>(
@@ -172,15 +172,6 @@ export const CreatePayment: React.FC = () => {
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <Button
-            variant="secondary"
-            size="sm"
-            className="border-purple-200 bg-purple-50 hover:bg-purple-100 text-xs text-purple-900 cursor-pointer shadow-xs font-bold"
-            onClick={() => openTutorial('merchant')}
-            leftIcon={<Sparkles className="w-3.5 h-3.5 text-purple-600 animate-pulse" />}
-          >
-            Tutorial & Guide
-          </Button>
-          <Button
             variant="outline"
             size="sm"
             className="border-slate-300 hover:border-purple-300 text-xs text-slate-700 cursor-pointer shadow-xs font-medium"
@@ -190,6 +181,7 @@ export const CreatePayment: React.FC = () => {
           </Button>
         </div>
       </div>
+
 
       {/* When Payment Has Been Generated: Display Full Invoice & QR Code */}
       {createdPayment ? (

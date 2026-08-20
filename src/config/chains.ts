@@ -239,3 +239,4 @@ export const getExplorerUrl = (chainId: number, txHash?: string, address?: strin
   if (address) return `${baseUrl}/address/${address}`;
   return baseUrl;
 };
+
