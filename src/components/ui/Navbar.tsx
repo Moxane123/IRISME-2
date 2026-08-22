@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   Sparkles,
   CreditCard,
+  QrCode,
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
@@ -53,6 +54,18 @@ export const Navbar: React.FC = () => {
 
           {/* Navigation on Desktop */}
           <nav className="hidden md:flex items-center gap-1 bg-slate-100/90 p-1 rounded-xl border border-slate-200">
+            <button
+              onClick={() => navigate('/scan')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                currentPath === '/scan'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-purple-700 bg-purple-50 hover:bg-purple-100 hover:text-purple-900 border border-purple-200/70'
+              }`}
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span>Scan to Pay</span>
+            </button>
+
             <button
               onClick={() => navigate('/merchant')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
@@ -188,7 +201,22 @@ export const Navbar: React.FC = () => {
       {/* Mobile Menu Dropdown */}
       {mobileMenuOpen && (
         <div className="md:hidden border-t border-slate-200 bg-white px-4 pt-3 pb-6 space-y-3 shadow-xl animate-fadeIn">
-          <div className="grid grid-cols-1 gap-2">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                navigate('/scan');
+                setMobileMenuOpen(false);
+              }}
+              className={`p-2.5 rounded-xl text-xs font-bold text-center border flex items-center justify-center gap-1.5 ${
+                currentPath === '/scan'
+                  ? 'bg-purple-600 border-purple-600 text-white'
+                  : 'bg-purple-50 border-purple-200 text-purple-900'
+              }`}
+            >
+              <QrCode className="w-4 h-4" />
+              <span>Scan to Pay</span>
+            </button>
+
             <button
               onClick={() => {
                 navigate('/merchant');

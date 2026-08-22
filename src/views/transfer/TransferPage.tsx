@@ -478,7 +478,7 @@ export const TransferPage: React.FC = () => {
                         ? 'e.g. TR7NHqJEhKQniGkfU56b388wb275n513SY'
                         : selectedAsset.network === 'Bitcoin'
                         ? 'e.g. bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq'
-                        : 'e.g. 0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093'
+                        : 'e.g. 0x...'
                     }
                     value={recipientAddress}
                     onChange={(e) => setRecipientAddress(e.target.value)}

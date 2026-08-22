@@ -1,35 +1,41 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%2300D2FE'/%3E%3Cstop offset='50%25' stop-color='%237928CA'/%3E%3Cstop offset='100%25' stop-color='%23FF0080'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='16' cy='16' r='14' fill='url(%23g)'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>IRISME | Web3 Merchant Payments & Verse Rewards</title>
-    <meta name="description" content="IRISME helps merchants accept crypto, reward customers with VERSE, and build wallet-based loyalty." />
-    <meta property="og:title" content="IRISME | Web3 Merchant Payments & Verse Rewards" />
-    <meta property="og:description" content="IRISME helps merchants accept crypto, reward customers with VERSE, and build wallet-based loyalty." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
+    <title>IRISME — Next-Gen Multi-Chain Crypto Checkout & VERSE Loyalty Platform</title>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script>
-      /* Safe polyfill compatibility guard for iframe environments */
+      // Global browser shim for web3 libraries
+      window.global = window;
+      // Handle chrome extensions injecting non-configurable props into window
       (function() {
         try {
-          var props = ['fetch', 'Headers', 'Request', 'Response', 'DOMException'];
+          var props = ['okxwallet', 'ethereum', 'solana', 'phantom', 'tronLink'];
           for (var i = 0; i < props.length; i++) {
             (function(p) {
               try {
-                var currentVal = window[p];
-                var desc = Object.getOwnPropertyDescriptor(window, p) || (window.__proto__ ? Object.getOwnPropertyDescriptor(window.__proto__, p) : null);
-                if (desc && (!desc.writable && !desc.set)) {
-                  Object.defineProperty(window, p, {
-                    get: function() { return currentVal; },
-                    set: function(v) { currentVal = v; },
-                    configurable: true,
-                    enumerable: true
-                  });
+                if (window[p] === undefined) {
+                  // allow future assignment
                 }
               } catch (e) {}
             })(props[i]);
           }
+        } catch (e) {}
+      })();
+    </script>
+    <!-- Verse Analytics Tracking Script -->
+    <script defer data-domain="your-domain.com" src="https://analytics.vgdh.io/js/script.js"></script>
+    <script>
+      (function() {
+        try {
+          window.plausible = window.plausible || function() {
+            (window.plausible.q = window.plausible.q || []).push(arguments);
+          };
         } catch (e) {}
       })();
     </script>

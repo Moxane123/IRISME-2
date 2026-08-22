@@ -497,8 +497,8 @@ export const SUPPORTED_ASSETS: SupportedAsset[] = [
   {
     id: 'SOL-L1',
     symbol: 'SOL',
-    name: 'Solana (Native Layer 1)',
-    network: 'Solana',
+    name: 'Solana (Solana Mainnet)',
+    network: 'Solana Mainnet',
     chainId: 0,
     contractAddress: '',
     decimals: 9,
@@ -508,7 +508,7 @@ export const SUPPORTED_ASSETS: SupportedAsset[] = [
     rateToUSD: 184.2,
     icon: '🟣',
     color: '#14F195',
-    description: 'Native Solana L1 High-Speed Settlement',
+    description: 'Native Solana Mainnet High-Speed Settlement',
   },
 ];
 

@@ -58,7 +58,9 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   if (!isOpen || !payment) return null;
 
   const chain = getChainConfig(payment.chainId || 137);
-  const explorerUrl = payment.txHash ? getExplorerTxUrl(payment.chainId || 137, payment.txHash) : null;
+  const explorerUrl = payment.txHash
+    ? getExplorerTxUrl(payment.chainId || 137, payment.txHash, payment.networkName || payment.network)
+    : null;
 
   const isRefunded = payment.status === 'refunded' || payment.refundStatus === 'COMPLETED';
   const isRefundRequested = payment.refundStatus === 'REQUESTED';
@@ -149,6 +151,8 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         paymentId: payment.id,
         txHash: payment.txHash || '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
         chainId: payment.chainId || 137,
+        network: payment.networkName || payment.network,
+        networkName: payment.networkName || payment.network,
         payerAddress: payment.customerWallet || '0x71C...9B42',
         tokenSymbol: payment.selectedToken,
         tokenAmount: payment.tokenAmount,

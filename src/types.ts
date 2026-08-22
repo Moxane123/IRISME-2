@@ -234,6 +234,7 @@ export interface Payment {
   // Blockchain / Network
   chainId: number;
   networkName?: string;
+  network?: string;
   // 1. Blockchain Network Fee (Gas)
   gasEstimate?: GasEstimate;
   estimatedGasUSD?: number;
@@ -415,7 +416,8 @@ export interface MerchantProfile {
   phone?: string;
   businessAddress?: string;
   taxId?: string; // EIN / VAT / Registration Number
-  settlementAddress: string; // Receiving crypto payment wallet address
+  settlementAddress: string; // Receiving crypto payment wallet address (default / primary EVM)
+  merchantReceivingAddresses?: Record<string, string>; // Network-specific receiving addresses (e.g. Bitcoin: bc1..., Solana: ..., Ethereum: 0x..., Polygon: 0x..., Tron: T..., "BNB Smart Chain": 0x...)
   defaultPaymentAsset: SupportedToken;
   defaultFiatCurrency: FiatCurrency;
   status: MerchantStatus;

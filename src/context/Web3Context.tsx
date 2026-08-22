@@ -337,7 +337,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
         merchantAddress: params.merchantAddress,
         verseAmount: params.tokenAmount,
         onStepUpdate: (update) => {
-          if (update.step === 'approving' || update.step === 'awaiting_payment') {
+          if (update.step === 'awaiting_payment') {
             params.onStatusUpdate?.('awaiting_signature', update.txHash);
           } else if (update.step === 'submitting') {
             params.onStatusUpdate?.('submitted', update.txHash);

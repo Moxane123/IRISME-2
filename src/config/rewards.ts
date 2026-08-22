@@ -50,7 +50,9 @@ let currentRewardConfig: RewardConfiguration = { ...DEFAULT_REWARD_CONFIG };
  * Returns the active centralized reward configuration
  */
 export const getRewardConfig = (): RewardConfiguration => {
-  return { ...currentRewardConfig };
+  return {
+    ...currentRewardConfig,
+  };
 };
 
 /**

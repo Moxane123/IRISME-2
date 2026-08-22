@@ -10,6 +10,7 @@ import { RewardEngine } from '../../services/rewardService';
 import { getExplorerTxUrl } from '../../config/explorers';
 import { DEFAULT_CHAIN_ID } from '../../config';
 import { RewardStatus, VerseRewardRecord } from '../../types';
+import { MerchantRegistrationRequired } from '../../components/merchant/MerchantRegistrationRequired';
 import {
   Coins,
   PlusCircle,
@@ -49,6 +50,16 @@ export const MerchantRewards: React.FC = () => {
   const [batchResult, setBatchResult] = useState<{ success: boolean; count: number; txHash?: string } | null>(null);
   const [distributingId, setDistributingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | RewardStatus>('all');
+
+  const isRegistered = Boolean(
+    merchantProfile.id &&
+    merchantProfile.name &&
+    merchantProfile.settlementAddress
+  );
+
+  if (!isRegistered) {
+    return <MerchantRegistrationRequired title="Register Business to Access VERSE Rewards Pool" />;
+  }
 
   const allRewards = customerRewards || merchantRewards || [];
   const stats = RewardEngine.getMerchantStats(allRewards);

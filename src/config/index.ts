@@ -6,4 +6,5 @@ export * from './explorers';
 export * from './fees';
 export * from './rewards';
 export * from './reputation';
+export * from './multiChainTokens';
 

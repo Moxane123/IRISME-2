@@ -32,7 +32,7 @@ export const SettleModal: React.FC<SettleModalProps> = ({ isOpen, onClose }) => 
 
   if (!isOpen) return null;
 
-  const defaultDestination = merchantProfile.settlementAddress || '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093';
+  const defaultDestination = merchantProfile.settlementAddress || '';
   const effectiveDestination = useCustomDest && customDestination ? customDestination.trim() : defaultDestination;
 
   const availableBalance = merchantBalance.availableBalanceUSD;

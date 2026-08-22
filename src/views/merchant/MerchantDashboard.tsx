@@ -7,6 +7,8 @@ import { Card, CardHeader, CardContent } from '../../components/ui/Card';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { TokenLogo } from '../../components/ui/TokenLogo';
 import { SettleModal } from '../../components/merchant/SettleModal';
+import { ReceivingAddressesModal } from '../../components/merchant/ReceivingAddressesModal';
+import { MerchantRegistrationRequired } from '../../components/merchant/MerchantRegistrationRequired';
 import { getExplorerTxUrl } from '../../config';
 import {
   DollarSign,
@@ -26,6 +28,8 @@ import {
   RefreshCw,
   History,
   CheckCircle2,
+  Settings,
+  Store,
 } from 'lucide-react';
 
 export const MerchantDashboard: React.FC = () => {
@@ -41,6 +45,7 @@ export const MerchantDashboard: React.FC = () => {
   const [copiedMerchantId, setCopiedMerchantId] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
+  const [isAddressesModalOpen, setIsAddressesModalOpen] = useState(false);
   const [transactionFilter, setTransactionFilter] = useState<'all' | 'successful' | 'pending' | 'settlements'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -70,8 +75,18 @@ export const MerchantDashboard: React.FC = () => {
   const pendingPaymentsCount = pendingPayments.length;
   const pendingVolumeUSD = pendingPayments.reduce((sum, p) => sum + (p.amountUSD || 0), 0);
 
+  const isRegistered = Boolean(
+    merchantProfile.id &&
+    merchantProfile.name &&
+    merchantProfile.settlementAddress
+  );
+
   const availableBalanceUSD = merchantBalance.availableBalanceUSD;
-  const destinationAddress = merchantProfile.settlementAddress || '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093';
+  const destinationAddress = merchantProfile.settlementAddress || '';
+
+  if (!isRegistered) {
+    return <MerchantRegistrationRequired />;
+  }
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -136,10 +151,10 @@ export const MerchantDashboard: React.FC = () => {
           </div>
 
           {/* Settlement / Receiving Wallet Badge */}
-          <div className="flex items-center gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-2 pt-1">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] font-mono text-slate-700">
               <Wallet className="w-3.5 h-3.5 text-purple-600 flex-shrink-0" />
-              <span className="text-slate-500 font-sans">Settlement Destination:</span>
+              <span className="text-slate-500 font-sans">Primary EVM Wallet:</span>
               <span className="font-bold text-slate-900">
                 {destinationAddress.slice(0, 8)}...{destinationAddress.slice(-6)}
               </span>
@@ -161,6 +176,15 @@ export const MerchantDashboard: React.FC = () => {
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setIsAddressesModalOpen(true)}
+              className="text-[11px] text-purple-700 hover:text-purple-900 font-bold bg-purple-50 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+            >
+              <Settings className="w-3.5 h-3.5 text-purple-600" />
+              <span>Multi-Chain Wallets ({Object.keys(merchantProfile.merchantReceivingAddresses || {}).length || 6})</span>
+            </button>
           </div>
         </div>
 
@@ -421,7 +445,9 @@ export const MerchantDashboard: React.FC = () => {
                 )
                   .slice(0, 8)
                   .map((p) => {
-                    const explorerUrl = p.txHash ? getExplorerTxUrl(p.chainId || 137, p.txHash) : null;
+                    const explorerUrl = p.txHash
+                      ? getExplorerTxUrl(p.chainId || 137, p.txHash, p.networkName || p.network)
+                      : null;
                     return (
                       <div
                         key={p.id}
@@ -527,6 +553,12 @@ export const MerchantDashboard: React.FC = () => {
       <SettleModal
         isOpen={isSettleModalOpen}
         onClose={() => setIsSettleModalOpen(false)}
+      />
+
+      {/* Multi-Chain Receiving Addresses Modal */}
+      <ReceivingAddressesModal
+        isOpen={isAddressesModalOpen}
+        onClose={() => setIsAddressesModalOpen(false)}
       />
     </div>
   );

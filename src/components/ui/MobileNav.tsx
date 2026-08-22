@@ -13,8 +13,8 @@ import {
 export const MobileNav: React.FC = () => {
   const { currentPath, navigate } = useRouter();
 
-  if (currentPath === '/' || currentPath.startsWith('/pay/')) {
-    return null; // Don't block screen on landing or dedicated checkout
+  if (currentPath === '/' || currentPath.startsWith('/pay') || currentPath.startsWith('/scan')) {
+    return null; // Don't block screen on landing, dedicated checkout, or QR scanner
   }
 
   return (

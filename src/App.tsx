@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { RouterProvider, useRouter } from './context/RouterContext';
 import { Web3Provider } from './context/Web3Context';
 import { AppProvider, useApp } from './context/AppContext';
@@ -7,6 +7,7 @@ import { Sidebar } from './components/ui/Sidebar';
 import { MobileNav } from './components/ui/MobileNav';
 import { WalletModal } from './components/ui/WalletModal';
 import { WrongNetworkBanner } from './components/ui/WrongNetworkBanner';
+import { analytics } from './services/analytics';
 
 // Views
 import { LandingPage } from './views/LandingPage';
@@ -19,6 +20,7 @@ import { MerchantRewards } from './views/merchant/MerchantRewards';
 import { MerchantLoyalty } from './views/merchant/MerchantLoyalty';
 import { MerchantCampaigns } from './views/merchant/MerchantCampaigns';
 import { CustomerPaymentPage } from './views/customer/CustomerPaymentPage';
+import { ScanToPayPage } from './views/customer/ScanToPayPage';
 import { TransferPage } from './views/transfer/TransferPage';
 import { SettingsPage } from './views/SettingsPage';
 import { AdminDashboard } from './views/admin/AdminDashboard';
@@ -26,6 +28,12 @@ import { AdminDashboard } from './views/admin/AdminDashboard';
 const AppContent: React.FC = () => {
   const { currentPath } = useRouter();
 
+  useEffect(() => {
+    analytics.initialize();
+    analytics.trackPageView(currentPath);
+  }, [currentPath]);
+
+  const isScanRoute = currentPath === '/scan' || currentPath === '/scan-to-pay';
   const isPayRoute = currentPath.startsWith('/pay');
   const isTransferRoute = currentPath === '/transfer';
   const isLandingRoute = currentPath === '/';
@@ -37,22 +45,27 @@ const AppContent: React.FC = () => {
       return <LandingPage />;
     }
 
-    // 2. Customer Payment Checkout (/pay/:paymentId) - No sign up required, instant wallet connect & pay
+    // 2. Customer QR Scan to Pay Portal (/scan or /scan-to-pay)
+    if (isScanRoute) {
+      return <ScanToPayPage />;
+    }
+
+    // 3. Customer Payment Checkout (/pay/:paymentId) - No sign up required, instant wallet connect & pay
     if (isPayRoute) {
       return <CustomerPaymentPage />;
     }
 
-    // 3. Multi-Chain Transfer Page (/transfer)
+    // 4. Multi-Chain Transfer Page (/transfer)
     if (isTransferRoute) {
       return <TransferPage />;
     }
 
-    // 4. Admin Portal (/admin) - Server-Side Protected Operations Monitor
+    // 5. Admin Portal (/admin) - Server-Side Protected Operations Monitor
     if (isAdminRoute) {
       return <AdminDashboard />;
     }
 
-    // 5. Merchant Routes
+    // 6. Merchant Routes
     if (currentPath === '/merchant/login') {
       return <MerchantAuthPage defaultMode="login" />;
     }
@@ -100,13 +113,13 @@ const AppContent: React.FC = () => {
 
       {/* Main Layout Container */}
       <div className="flex-1 flex w-full">
-        {/* Sidebar on App Pages, hidden on Landing, Dedicated Checkout, and Full-Width Admin Dashboard */}
-        {!isLandingRoute && !isPayRoute && !isAdminRoute && <Sidebar />}
+        {/* Sidebar on App Pages, hidden on Landing, Dedicated Checkout, Scan to Pay, and Full-Width Admin Dashboard */}
+        {!isLandingRoute && !isPayRoute && !isScanRoute && !isAdminRoute && <Sidebar />}
 
         {/* View Content Area */}
         <main
           className={`flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full ${
-            !isLandingRoute && !isPayRoute && !isAdminRoute ? 'pb-24 md:pb-8' : ''
+            !isLandingRoute && !isPayRoute && !isScanRoute && !isAdminRoute ? 'pb-24 md:pb-8' : ''
           }`}
         >
           {renderCurrentView()}

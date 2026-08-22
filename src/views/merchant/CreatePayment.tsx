@@ -1,41 +1,53 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from '../../context/RouterContext';
 import { useApp } from '../../context/AppContext';
-import { Button } from '../../components/ui/Button';
 import { Card, CardHeader, CardContent } from '../../components/ui/Card';
-import { StatusBadge } from '../../components/ui/StatusBadge';
-import { SupportedToken, FiatCurrency, Payment } from '../../types';
-import { SUPPORTED_TOKENS, FIAT_CURRENCIES } from '../../data/mockData';
-import { SUPPORTED_CHAINS, getChainConfig } from '../../config/chains';
-import { DEFAULT_PLATFORM_FEE_PERCENT } from '../../config';
-import { EconomicService } from '../../services/economicService';
-import { PriceService } from '../../services/priceService';
+import { Button } from '../../components/ui/Button';
 import { PaymentQRCode } from '../../components/ui/PaymentQRCode';
 import { TokenLogo } from '../../components/ui/TokenLogo';
-import { TokenLogoModal } from '../../components/ui/TokenLogoModal';
+import { ReceivingAddressesModal } from '../../components/merchant/ReceivingAddressesModal';
+import { MerchantRegistrationRequired } from '../../components/merchant/MerchantRegistrationRequired';
 import {
-  PlusCircle,
-  Copy,
+  SUPPORTED_PAYMENT_ASSETS,
+  AllowedPaymentAsset,
+  TokenNetworkConfig,
+  getNetworksForAsset,
+  findTokenNetworkConfig,
+  validateAddressForNetwork,
+  generateMultiChainPaymentUri,
+  createCanonicalPaymentRequestJson,
+} from '../../config/multiChainTokens';
+import { PriceService } from '../../services/priceService';
+import { EconomicService } from '../../services/economicService';
+import { DEFAULT_PLATFORM_FEE_PERCENT } from '../../config/fees';
+import { Payment, FiatCurrency, SupportedToken } from '../../types';
+import { FIAT_CURRENCIES } from '../../data/mockData';
+import {
+  Layers,
+  Sparkles,
+  Receipt,
   Check,
+  Copy,
   ExternalLink,
   Clock,
-  Receipt,
-  Sparkles,
+  FileText,
+  Hash,
+  AlertCircle,
   ShieldCheck,
   Zap,
-  Tag,
-  Hash,
-  FileText,
-  AlertCircle,
   ArrowRight,
-  Store,
-  Layers,
+  Wallet,
+  Globe,
+  Info,
+  CheckCircle2,
+  Settings,
+  Save,
 } from 'lucide-react';
 
 const EXPIRATION_OPTIONS = [
   { label: '15 Minutes', minutes: 15 },
   { label: '30 Minutes', minutes: 30 },
-  { label: '45 Minutes (Default)', minutes: 45 },
+  { label: '45 Minutes', minutes: 45 },
   { label: '1 Hour', minutes: 60 },
   { label: '2 Hours', minutes: 120 },
   { label: '24 Hours', minutes: 1440 },
@@ -43,16 +55,44 @@ const EXPIRATION_OPTIONS = [
 
 export const CreatePayment: React.FC = () => {
   const { navigate } = useRouter();
-  const { createPayment, merchantProfile, getPaymentById } = useApp();
+  const { createPayment, merchantProfile, updateMerchantProfile, getPaymentById } = useApp();
 
-  const [amount, setAmount] = useState<string>('25.00');
+  // Multi-Chain Step 1: Asset Selection (ONLY: USDC, USDT, VERSE, BTC)
+  const [selectedAsset, setSelectedAsset] = useState<AllowedPaymentAsset>('USDC');
+
+  // Multi-Chain Step 2: Network Selection for Chosen Asset
+  const availableNetworks = getNetworksForAsset(selectedAsset);
+  const [selectedNetworkConfigId, setSelectedNetworkConfigId] = useState<string>(
+    availableNetworks[0]?.id || 'USDC-Solana'
+  );
+
+  // Address Management Modal State
+  const [isAddressModalOpen, setIsAddressModalOpen] = useState<boolean>(false);
+  const [savedAddressToast, setSavedAddressToast] = useState<boolean>(false);
+
+  // When asset changes, automatically select the first valid network configuration for that asset
+  useEffect(() => {
+    const validConfigs = getNetworksForAsset(selectedAsset);
+    if (validConfigs.length > 0) {
+      // If current selected config is not in valid list, default to first valid config
+      const stillValid = validConfigs.find((c) => c.id === selectedNetworkConfigId);
+      if (!stillValid) {
+        setSelectedNetworkConfigId(validConfigs[0].id);
+      }
+    }
+  }, [selectedAsset]);
+
+  const activeNetworkConfig: TokenNetworkConfig =
+    availableNetworks.find((c) => c.id === selectedNetworkConfigId) ||
+    availableNetworks[0] ||
+    findTokenNetworkConfig('USDC', 'Solana')!;
+
+  // Amount & Options
+  const [amount, setAmount] = useState<string>('50.00');
   const [fiatCurrency, setFiatCurrency] = useState<FiatCurrency>(
     merchantProfile.defaultFiatCurrency || 'USD'
   );
-  const [selectedToken, setSelectedToken] = useState<SupportedToken>(
-    merchantProfile.defaultPaymentAsset || 'USDT'
-  );
-  const [selectedChainId, setSelectedChainId] = useState<number>(137); // Polygon default
+  const [customSettlementAddress, setCustomSettlementAddress] = useState<string>('');
   const [description, setDescription] = useState<string>('Order checkout');
   const [orderRef, setOrderRef] = useState<string>('');
   const [expirationMinutes, setExpirationMinutes] = useState<number>(45);
@@ -60,54 +100,90 @@ export const CreatePayment: React.FC = () => {
   const [createdPayment, setCreatedPayment] = useState<Payment | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
-  const [isLogoGalleryOpen, setIsLogoGalleryOpen] = useState(false);
+  const [copiedAddress, setCopiedAddress] = useState(false);
 
-  const numAmount = parseFloat(amount) || 0;
-  const tokenInfo = SUPPORTED_TOKENS.find((t) => t.symbol === selectedToken) || SUPPORTED_TOKENS[0];
-  const verseToken = SUPPORTED_TOKENS.find((t) => t.symbol === 'VERSE')!;
-  const currentChain = getChainConfig(selectedChainId) || SUPPORTED_CHAINS[137];
-
-  // Auto-adjust default chain when token requires specific chain (e.g. BNB on 56, POL on 137, AVAX on 43114)
-  const handleSelectToken = (sym: SupportedToken) => {
-    setSelectedToken(sym);
-    if (sym === 'BNB') setSelectedChainId(56);
-    else if (sym === 'POL' || sym === 'MATIC' || sym === 'VERSE') setSelectedChainId(137);
-    else if (sym === 'AVAX') setSelectedChainId(43114);
-    else if (sym === 'SOL' || sym === 'BTC') setSelectedChainId(137); // EVM settlement hub
-  };
-
-  // Live verse and token price
+  // Live prices
   const [liveVersePrice, setLiveVersePrice] = useState<number>(() => PriceService.getPrice('VERSE') || 0.0000176);
+  const [liveBtcPrice, setLiveBtcPrice] = useState<number>(() => PriceService.getPrice('BTC') || 96450.0);
 
   useEffect(() => {
     const fetchPrices = async () => {
       const v = await PriceService.getVersePrice();
       if (v > 0) setLiveVersePrice(v);
+      const b = PriceService.getPrice('BTC');
+      if (b && b > 0) setLiveBtcPrice(b);
     };
     fetchPrices();
   }, []);
 
-  const activeVerseRate = liveVersePrice > 0 ? liveVersePrice : (verseToken.rateToUSD || 0.0000176);
-  const activeTokenRate = selectedToken === 'VERSE' ? activeVerseRate : (PriceService.getPrice(selectedToken) || tokenInfo.rateToUSD);
+  const numAmount = parseFloat(amount) || 0;
 
-  // Crypto conversion
-  const calculatedCrypto =
-    selectedToken === 'VERSE'
-      ? Math.round(numAmount / activeVerseRate)
-      : selectedToken === 'ETH' || selectedToken === 'WBTC' || selectedToken === 'BTC' || selectedToken === 'SOL'
-      ? Number((numAmount / activeTokenRate).toFixed(6))
-      : Number((numAmount / activeTokenRate).toFixed(2));
+  // Exact token amount calculation for the selected asset
+  const calculatedTokenAmount = (() => {
+    if (numAmount <= 0) return 0;
+    if (selectedAsset === 'USDC' || selectedAsset === 'USDT') {
+      return Number(numAmount.toFixed(2));
+    }
+    if (selectedAsset === 'VERSE') {
+      return Math.round(numAmount / (liveVersePrice || 0.0000176));
+    }
+    if (selectedAsset === 'BTC') {
+      return Number((numAmount / (liveBtcPrice || 96450.0)).toFixed(8));
+    }
+    return Number(numAmount.toFixed(2));
+  })();
 
-  // 3-Concept Economic Calculation
+  // Merchant Settlement Wallet Address for selected network
+  // Store & read network-specific receiving addresses from merchant profile
+  const storedNetworkAddress =
+    merchantProfile.merchantReceivingAddresses?.[activeNetworkConfig.network] ||
+    (activeNetworkConfig.networkType === 'EVM' && merchantProfile.settlementAddress?.startsWith('0x')
+      ? merchantProfile.settlementAddress
+      : '');
+
+  const effectiveRecipientAddress =
+    customSettlementAddress.trim() ||
+    storedNetworkAddress ||
+    '';
+
+  const isRegistered = Boolean(
+    merchantProfile.id &&
+    merchantProfile.name &&
+    merchantProfile.settlementAddress
+  );
+
+  // Live Address Validation
+  const addressValidation = validateAddressForNetwork(
+    effectiveRecipientAddress,
+    activeNetworkConfig.network
+  );
+
+  // Save current address as default for the selected network
+  const handleSaveAddressForNetwork = async () => {
+    if (!addressValidation.isValid) return;
+    const currentAddrs = merchantProfile.merchantReceivingAddresses || {};
+    const updated = {
+      ...currentAddrs,
+      [activeNetworkConfig.network]: effectiveRecipientAddress,
+    };
+    await updateMerchantProfile({
+      merchantReceivingAddresses: updated,
+      ...(activeNetworkConfig.networkType === 'EVM' ? { settlementAddress: effectiveRecipientAddress } : {}),
+    });
+    setSavedAddressToast(true);
+    setTimeout(() => setSavedAddressToast(false), 2500);
+  };
+
+  // Economic Breakdown
   const liveEconomics = EconomicService.getPaymentEconomics({
     amountUSD: numAmount,
-    tokenAmount: calculatedCrypto,
-    tokenSymbol: selectedToken,
-    chainId: selectedChainId,
-    settlementAddress: merchantProfile.settlementAddress || '',
+    tokenAmount: calculatedTokenAmount,
+    tokenSymbol: selectedAsset,
+    chainId: activeNetworkConfig.chainId || 137,
+    settlementAddress: effectiveRecipientAddress,
     merchantType: merchantProfile.merchantType || 'irisme_merchant',
     cashbackPercent: merchantProfile.baseRewardPercent || 1.0,
-    versePriceUSD: activeVerseRate,
+    versePriceUSD: liveVersePrice,
     campaignMultiplier: 1.0,
   });
 
@@ -124,11 +200,20 @@ export const CreatePayment: React.FC = () => {
     e.preventDefault();
     if (numAmount <= 0) return;
 
+    if (!addressValidation.isValid) {
+      alert(`Invalid settlement address: ${addressValidation.error}`);
+      return;
+    }
+
     const newPayment = createPayment({
       amountUSD: numAmount,
+      tokenAmount: calculatedTokenAmount,
       fiatCurrency,
-      selectedToken,
-      chainId: selectedChainId,
+      selectedToken: selectedAsset as SupportedToken,
+      chainId: activeNetworkConfig.chainId || (activeNetworkConfig.networkType === 'EVM' ? 137 : undefined),
+      network: activeNetworkConfig.network,
+      networkId: activeNetworkConfig.networkId,
+      merchantAddress: effectiveRecipientAddress,
       description: description.trim() || 'IRISME Crypto Checkout',
       orderRef: orderRef.trim() || undefined,
       merchantType: merchantProfile.merchantType || 'irisme_merchant',
@@ -154,19 +239,29 @@ export const CreatePayment: React.FC = () => {
     setTimeout(() => setCopiedId(false), 2000);
   };
 
+  const handleCopyAddress = (addr: string) => {
+    navigator.clipboard.writeText(addr);
+    setCopiedAddress(true);
+    setTimeout(() => setCopiedAddress(false), 2000);
+  };
+
+  if (!isRegistered) {
+    return <MerchantRegistrationRequired title="Register Business to Create Payment Requests" />;
+  }
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-fadeIn">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+          <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2.5">
             <span>Create Payment Request</span>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-bold">
-              Multi-Chain
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-gradient-to-r from-cyan-500/10 via-purple-500/10 to-pink-500/10 border border-purple-200 text-purple-700 font-extrabold">
+              Multi-Chain Rail
             </span>
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 mt-1">
-            Generate an on-chain invoice with real-time barcode, QR code, and instant customer checkout.
+            Configure asset, choose supported network, generate verifiable multi-chain payment invoice & QR code.
           </p>
         </div>
 
@@ -174,7 +269,16 @@ export const CreatePayment: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
-            className="border-slate-300 hover:border-purple-300 text-xs text-slate-700 cursor-pointer shadow-xs font-medium"
+            className="border-slate-300 hover:border-purple-300 text-xs text-slate-700 cursor-pointer shadow-xs font-semibold"
+            onClick={() => setIsAddressModalOpen(true)}
+            leftIcon={<Wallet className="w-3.5 h-3.5 text-purple-600" />}
+          >
+            Receiving Wallets
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-slate-300 hover:border-purple-300 text-xs text-slate-700 cursor-pointer shadow-xs font-semibold"
             onClick={() => navigate('/merchant/payments')}
           >
             View Payments & Invoices
@@ -182,8 +286,7 @@ export const CreatePayment: React.FC = () => {
         </div>
       </div>
 
-
-      {/* When Payment Has Been Generated: Display Full Invoice & QR Code */}
+      {/* When Payment Has Been Generated: Display Full Multi-Chain Invoice & QR Code */}
       {createdPayment ? (
         <div data-tour="generated-qr-channel" className="space-y-6">
           <div className="p-6 sm:p-8 rounded-3xl bg-white border border-slate-200 shadow-xl space-y-6">
@@ -193,7 +296,7 @@ export const CreatePayment: React.FC = () => {
                   <Check className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">Payment Invoice Ready</h3>
+                  <h3 className="text-lg font-bold text-slate-900">Multi-Chain Invoice Ready</h3>
                   <p className="text-xs text-slate-500 font-mono">Invoice ID: {createdPayment.id}</p>
                 </div>
               </div>
@@ -220,6 +323,22 @@ export const CreatePayment: React.FC = () => {
               </div>
             </div>
 
+            {/* Direct Multi-Chain Rail Guarantee Banner */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 via-cyan-50 to-emerald-50 border border-purple-200/80 shadow-xs">
+              <div className="flex items-start gap-3">
+                <ShieldCheck className="w-5 h-5 text-purple-600 flex-shrink-0 mt-0.5" />
+                <div className="space-y-1 text-xs">
+                  <p className="font-bold text-slate-900">
+                    Direct Multi-Chain Rail Execution (No Conversion)
+                  </p>
+                  <p className="text-slate-600">
+                    Merchant requested <span className="font-bold text-slate-900">{createdPayment.tokenAmount} {createdPayment.selectedToken}</span> on{' '}
+                    <span className="font-bold text-purple-700">{createdPayment.networkName}</span>. Customer pays {createdPayment.tokenAmount} {createdPayment.selectedToken} on {createdPayment.networkName}, and merchant receives the exact same asset directly on {createdPayment.networkName}.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Comprehensive Detail Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
               {/* Payment Details */}
@@ -239,16 +358,19 @@ export const CreatePayment: React.FC = () => {
                   </div>
                 </div>
 
-                {createdPayment.orderRef && (
-                  <div className="flex justify-between py-1.5 border-b border-slate-200">
-                    <span className="text-slate-500">Order / Ref ID:</span>
-                    <span className="text-slate-900 font-bold font-sans">{createdPayment.orderRef}</span>
-                  </div>
-                )}
+                <div className="flex justify-between py-1.5 border-b border-slate-200">
+                  <span className="text-slate-500">Requested Asset:</span>
+                  <span className="text-slate-900 font-bold font-sans flex items-center gap-1.5">
+                    <TokenLogo symbol={createdPayment.selectedToken} size="xs" />
+                    <span>{createdPayment.selectedToken}</span>
+                  </span>
+                </div>
 
                 <div className="flex justify-between py-1.5 border-b border-slate-200">
-                  <span className="text-slate-500">Description:</span>
-                  <span className="text-slate-900 font-medium font-sans truncate max-w-[200px]">{createdPayment.description}</span>
+                  <span className="text-slate-500">Settlement Network:</span>
+                  <span className="text-purple-700 font-bold font-sans px-2 py-0.5 rounded-md bg-purple-100 text-[11px]">
+                    {createdPayment.networkName || 'Polygon'}
+                  </span>
                 </div>
 
                 <div className="flex justify-between py-1.5 border-b border-slate-200">
@@ -259,10 +381,15 @@ export const CreatePayment: React.FC = () => {
                 </div>
 
                 <div className="flex justify-between py-1.5 border-b border-slate-200">
-                  <span className="text-slate-500">Settlement Network:</span>
-                  <span className="text-slate-900 font-bold font-sans">
-                    {getChainConfig(createdPayment.chainId || 137)?.name || 'Polygon'}
-                  </span>
+                  <span className="text-slate-500">Recipient Address:</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-800 font-mono text-[11px] truncate max-w-[170px]" title={createdPayment.merchantAddress}>
+                      {createdPayment.merchantAddress}
+                    </span>
+                    <button onClick={() => handleCopyAddress(createdPayment.merchantAddress || '')} className="text-slate-400 hover:text-slate-700 cursor-pointer">
+                      {copiedAddress ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex justify-between py-1.5 border-b border-slate-200">
@@ -273,9 +400,9 @@ export const CreatePayment: React.FC = () => {
                 </div>
 
                 <div className="flex justify-between py-2 border-b border-slate-200 bg-emerald-50/80 -mx-2 px-3 rounded-xl">
-                  <span className="text-emerald-900 font-sans font-bold">You Receive (Net Settlement):</span>
+                  <span className="text-emerald-900 font-sans font-bold">Merchant Receives (Net):</span>
                   <span className="text-emerald-700 font-extrabold text-sm font-mono">
-                    ${(createdPayment.netSettlementUSD ?? (createdPayment.amountUSD - (createdPayment.platformFeeUSD ?? (createdPayment.amountUSD * ((createdPayment.platformFeePercent ?? DEFAULT_PLATFORM_FEE_PERCENT) / 100))))).toFixed(2)}
+                    {(createdPayment.netSettlementTokenAmount ?? createdPayment.tokenAmount).toFixed(selectedAsset === 'BTC' ? 6 : 2)} {createdPayment.selectedToken} (${(createdPayment.netSettlementUSD ?? createdPayment.amountUSD).toFixed(2)})
                   </span>
                 </div>
 
@@ -294,13 +421,40 @@ export const CreatePayment: React.FC = () => {
               <div>
                 <PaymentQRCode
                   url={`${window.location.origin}/pay/${createdPayment.id}`}
+                  canonicalJson={createCanonicalPaymentRequestJson({
+                    paymentId: createdPayment.id,
+                    merchantName: createdPayment.merchantName || merchantProfile.name || 'IRISME Merchant',
+                    merchantReceivingAddress: createdPayment.merchantAddress || effectiveRecipientAddress,
+                    asset: createdPayment.selectedToken as AllowedPaymentAsset,
+                    network: createdPayment.networkName || 'Polygon',
+                    amount: createdPayment.tokenAmount,
+                    decimals: activeNetworkConfig.decimals,
+                    expiry: createdPayment.expiresAt,
+                    orderRef: createdPayment.orderRef,
+                    description: createdPayment.description,
+                    metadata: {
+                      fiatAmount: createdPayment.amountUSD,
+                      fiatCurrency: createdPayment.fiatCurrency,
+                      verseCashbackEarned: createdPayment.verseEarned,
+                      platformFeePercent: createdPayment.platformFeePercent,
+                    },
+                  })}
+                  paymentUri={generateMultiChainPaymentUri({
+                    assetSymbol: createdPayment.selectedToken as AllowedPaymentAsset,
+                    network: createdPayment.networkName || 'Polygon',
+                    chainId: createdPayment.chainId,
+                    recipientAddress: createdPayment.merchantAddress || '',
+                    tokenAmount: createdPayment.tokenAmount,
+                    paymentId: createdPayment.id,
+                    merchantName: createdPayment.merchantName,
+                  })}
                   amountUSD={createdPayment.amountUSD}
                   tokenAmount={createdPayment.tokenAmount}
                   tokenSymbol={createdPayment.selectedToken}
-                  merchantAddress={merchantProfile.settlementAddress || '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093'}
-                  merchantName={merchantProfile.name || 'IrisMe Merchant'}
+                  merchantAddress={createdPayment.merchantAddress || ''}
+                  merchantName={createdPayment.merchantName}
                   itemDescription={createdPayment.description}
-                  networkName={getChainConfig(createdPayment.chainId || 137)?.name || 'Polygon'}
+                  networkName={createdPayment.networkName || 'Polygon'}
                   verseEarned={createdPayment.verseEarned}
                 />
               </div>
@@ -333,16 +487,150 @@ export const CreatePayment: React.FC = () => {
           <div className="lg:col-span-2 space-y-6">
             <Card variant="default">
               <CardHeader
-                title="Payment Request Details"
-                subtitle="Enter payment amount, crypto asset, target blockchain network, and memo"
+                title="Multi-Chain Payment Configuration"
+                subtitle="Select crypto asset, choose supported network, and enter payment amount."
               />
               <CardContent className="p-6 sm:p-7 space-y-6">
                 <form onSubmit={handleSubmit} className="space-y-6">
-                  {/* Field 1: Amount & Currency */}
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                      1. Payment Amount & Currency <span className="text-purple-600">*</span>
+                  {/* ASSET Dropdown & Selector */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center text-[10px] font-bold">1</span>
+                        <span>Asset</span>
+                        <span className="text-purple-600">*</span>
+                      </label>
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        Supported: USDC, USDT, VERSE, BTC
+                      </span>
+                    </div>
+
+                    {/* Asset Select Dropdown */}
+                    <div className="relative">
+                      <select
+                        value={selectedAsset}
+                        onChange={(e) => setSelectedAsset(e.target.value as AllowedPaymentAsset)}
+                        className="w-full pl-4 pr-10 py-3 rounded-2xl bg-white border border-slate-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-400/20 text-sm font-extrabold text-slate-900 focus:outline-none cursor-pointer shadow-xs"
+                      >
+                        {SUPPORTED_PAYMENT_ASSETS.map((symbol) => (
+                          <option key={symbol} value={symbol}>
+                            {symbol} — {symbol === 'USDC' ? 'USD Coin' : symbol === 'USDT' ? 'Tether USD' : symbol === 'VERSE' ? 'Verse Token' : 'Bitcoin'}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Quick Asset Tiles */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+                      {SUPPORTED_PAYMENT_ASSETS.map((symbol) => {
+                        const isSelected = selectedAsset === symbol;
+                        const assetConfigs = getNetworksForAsset(symbol);
+                        return (
+                          <button
+                            key={symbol}
+                            type="button"
+                            onClick={() => setSelectedAsset(symbol)}
+                            className={`p-3 rounded-2xl border text-left transition-all cursor-pointer group relative overflow-hidden ${
+                              isSelected
+                                ? 'bg-gradient-to-br from-cyan-50 via-purple-50 to-pink-50 border-purple-500 shadow-md shadow-purple-500/10 ring-2 ring-purple-400/30'
+                                : 'bg-white border-slate-200 hover:border-purple-300 hover:bg-slate-50/80 shadow-xs'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1.5">
+                              <TokenLogo
+                                symbol={symbol}
+                                size="sm"
+                                variant={isSelected ? 'gif' : 'icon'}
+                                animated={isSelected}
+                              />
+                              <span className="font-extrabold text-xs text-slate-900">{symbol}</span>
+                            </div>
+                            <p className="text-[11px] font-bold text-slate-700 truncate">
+                              {symbol === 'USDC' ? 'USD Coin' : symbol === 'USDT' ? 'Tether USD' : symbol === 'VERSE' ? 'Verse Token' : 'Bitcoin'}
+                            </p>
+                            <p className="text-[10px] text-purple-600 font-semibold mt-0.5">
+                              {assetConfigs.length} {assetConfigs.length === 1 ? 'Network' : 'Networks'}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* NETWORK Dropdown & Selector (Dynamically Filtered Based On Asset) */}
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center text-[10px] font-bold">2</span>
+                        <span>Network</span>
+                        <span className="text-purple-600">*</span>
+                      </label>
+                      <span className="text-[11px] text-purple-700 font-semibold">
+                        {availableNetworks.length} Available for {selectedAsset}
+                      </span>
+                    </div>
+
+                    {/* Network Dropdown Select */}
+                    <div className="relative">
+                      <select
+                        value={selectedNetworkConfigId}
+                        onChange={(e) => setSelectedNetworkConfigId(e.target.value)}
+                        className="w-full pl-4 pr-10 py-3 rounded-2xl bg-white border border-slate-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-400/20 text-sm font-bold text-slate-900 focus:outline-none cursor-pointer shadow-xs font-sans"
+                      >
+                        {availableNetworks.map((netConfig) => (
+                          <option key={netConfig.id} value={netConfig.id}>
+                            {netConfig.network} ({netConfig.networkType === 'BITCOIN' ? 'Native Layer 1 UTXO' : netConfig.addressFormat.split(' ')[0]})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Network Quick Selection Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                      {availableNetworks.map((netConfig) => {
+                        const isNetSelected = selectedNetworkConfigId === netConfig.id;
+                        return (
+                          <button
+                            key={netConfig.id}
+                            type="button"
+                            onClick={() => setSelectedNetworkConfigId(netConfig.id)}
+                            className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between relative ${
+                              isNetSelected
+                                ? 'bg-purple-50/90 border-purple-500 shadow-md ring-2 ring-purple-400/30'
+                                : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50 shadow-xs'
+                            }`}
+                          >
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="font-extrabold text-xs text-slate-900 flex items-center gap-1.5">
+                                  <Globe className="w-3.5 h-3.5 text-purple-600" />
+                                  <span>{netConfig.network}</span>
+                                </span>
+                                {isNetSelected && (
+                                  <CheckCircle2 className="w-4 h-4 text-purple-600" />
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-500 font-mono truncate">
+                                {netConfig.isNative ? 'Native Layer 1 UTXO' : `Contract: ${netConfig.contractAddress.slice(0, 6)}...${netConfig.contractAddress.slice(-4)}`}
+                              </p>
+                              <p className="text-[10px] text-slate-600 mt-1">
+                                <span className="font-semibold text-slate-700">Format:</span> {netConfig.addressFormat.split(' ')[0]} | <span className="font-semibold text-slate-700">Decimals:</span> {netConfig.decimals}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* AMOUNT */}
+                  <div className="space-y-2.5">
+                    <label className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center text-[10px] font-bold">3</span>
+                      <span>Amount</span>
+                      <span className="text-purple-600">*</span>
                     </label>
+
                     <div className="grid grid-cols-3 gap-3">
                       <div className="col-span-2 relative">
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-mono text-base font-bold">
@@ -350,13 +638,12 @@ export const CreatePayment: React.FC = () => {
                         </span>
                         <input
                           type="number"
-                          step="0.01"
+                          step={selectedAsset === 'BTC' ? '0.01' : '0.01'}
                           min="0.10"
                           value={amount}
                           onChange={(e) => setAmount(e.target.value)}
                           placeholder="0.00"
                           required
-                          autoFocus
                           className="w-full pl-8 pr-4 py-3 rounded-2xl bg-white border border-slate-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-400/20 font-mono text-xl font-bold text-slate-900 focus:outline-none transition-all shadow-xs"
                         />
                       </div>
@@ -375,85 +662,113 @@ export const CreatePayment: React.FC = () => {
                         </select>
                       </div>
                     </div>
+
+                    {/* Real-Time Crypto Conversion Display */}
+                    <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+                      <span className="text-slate-600 font-medium">Requested Crypto Amount:</span>
+                      <span className="font-extrabold text-slate-900 font-mono text-sm flex items-center gap-1.5">
+                        <TokenLogo symbol={selectedAsset} size="xs" />
+                        <span>{calculatedTokenAmount} {selectedAsset}</span>
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Field 2: Supported Payment Asset */}
+                  {/* RECEIVING ADDRESS (Automatically Displayed For Selected Network) */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        2. Crypto Payment Asset <span className="text-purple-600">*</span>
+                      <label className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center text-[10px] font-bold">4</span>
+                        <span>Receiving Address</span>
+                        <span className="text-purple-600">*</span>
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => setIsLogoGalleryOpen(true)}
-                        className="text-[11px] text-purple-600 hover:text-purple-800 font-bold flex items-center gap-1 cursor-pointer"
-                      >
-                        <Sparkles className="w-3 h-3 text-cyan-500" />
-                        <span>All {SUPPORTED_TOKENS.length} Assets</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsAddressModalOpen(true)}
+                          className="text-[11px] text-purple-600 hover:text-purple-800 font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Settings className="w-3 h-3" />
+                          <span>Manage All Addresses</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                      {SUPPORTED_TOKENS.map((token) => (
-                        <button
-                          key={token.symbol}
-                          type="button"
-                          onClick={() => handleSelectToken(token.symbol)}
-                          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer group ${
-                            selectedToken === token.symbol
-                              ? 'bg-gradient-to-br from-cyan-50 via-purple-50 to-pink-50 border-purple-500 shadow-md shadow-purple-500/10 ring-2 ring-purple-400/20'
-                              : 'bg-white border-slate-200 hover:border-purple-300 hover:bg-slate-50 shadow-xs'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <TokenLogo
-                              symbol={token.symbol}
-                              size="md"
-                              variant={selectedToken === token.symbol ? 'gif' : 'icon'}
-                              animated={selectedToken === token.symbol}
-                            />
-                            <span className="font-bold text-xs text-slate-900">{token.symbol}</span>
-                          </div>
-                          <p className="text-[10px] text-slate-500 truncate font-medium">{token.name.split(' ')[0]}</p>
-                        </button>
-                      ))}
+                    {/* Auto Detected Network Badge */}
+                    <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-purple-50/70 border border-purple-100 text-xs">
+                      <span className="text-purple-900 font-medium flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-purple-600" />
+                        <span>Network Rail: <strong className="text-purple-950">{activeNetworkConfig.network}</strong></span>
+                      </span>
+                      <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-purple-200/80 text-purple-800 font-bold">
+                        {activeNetworkConfig.addressFormat}
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <Wallet className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={customSettlementAddress || effectiveRecipientAddress}
+                        onChange={(e) => setCustomSettlementAddress(e.target.value)}
+                        placeholder={activeNetworkConfig.addressPlaceholder}
+                        required
+                        className={`w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border font-mono text-xs focus:outline-none transition-colors shadow-xs ${
+                          addressValidation.isValid
+                            ? 'border-slate-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-400/20 text-slate-900'
+                            : 'border-red-400 focus:border-red-500 text-red-900 bg-red-50/30'
+                        }`}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px]">
+                      <div className="flex items-center gap-2">
+                        {customSettlementAddress.trim() && customSettlementAddress.trim() !== storedNetworkAddress && (
+                          <button
+                            type="button"
+                            onClick={handleSaveAddressForNetwork}
+                            disabled={!addressValidation.isValid}
+                            className="text-xs text-purple-700 hover:text-purple-900 font-bold flex items-center gap-1 cursor-pointer bg-purple-100 px-2 py-0.5 rounded-lg"
+                          >
+                            <Save className="w-3 h-3" />
+                            <span>Save as default for {activeNetworkConfig.network}</span>
+                          </button>
+                        )}
+                        {savedAddressToast && (
+                          <span className="text-emerald-600 font-bold flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Saved!
+                          </span>
+                        )}
+                      </div>
+                      {!addressValidation.isValid && (
+                        <span className="text-red-600 font-bold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          {addressValidation.error}
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  {/* Field 3: Settlement Blockchain Network */}
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block flex items-center gap-1.5">
-                      <Layers className="w-3.5 h-3.5 text-purple-600" />
-                      <span>3. Settlement Blockchain Network</span> <span className="text-purple-600">*</span>
-                    </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {Object.values(SUPPORTED_CHAINS).map((chain) => (
-                        <button
-                          key={chain.id}
-                          type="button"
-                          onClick={() => setSelectedChainId(chain.id)}
-                          className={`p-2.5 rounded-xl border text-left flex items-center gap-2 cursor-pointer transition-all ${
-                            selectedChainId === chain.id
-                              ? 'bg-purple-50 border-purple-500 text-purple-900 font-bold ring-1 ring-purple-400'
-                              : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
-                          }`}
-                        >
-                          <span className="text-base">{chain.icon}</span>
-                          <div className="truncate">
-                            <span className="text-xs block font-bold truncate">{chain.shortName}</span>
-                            <span className="text-[10px] text-slate-400 block font-mono">
-                              Gas: {chain.nativeCurrency.symbol}
-                            </span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Field 4: Short Description */}
+                  {/* REFERENCE [optional] */}
                   <div className="space-y-2">
                     <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                      4. Description / Item to Buy <span className="text-purple-600">*</span>
+                      Reference <span className="text-slate-400 font-normal lowercase">(optional)</span>
+                    </label>
+                    <div className="relative">
+                      <Hash className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={orderRef}
+                        onChange={(e) => setOrderRef(e.target.value)}
+                        placeholder="e.g. ORD-9842, Table 4"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border border-slate-300 focus:border-purple-500 text-xs text-slate-900 font-mono placeholder-slate-400 focus:outline-none shadow-xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* DESCRIPTION [optional] */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                      Description <span className="text-slate-400 font-normal lowercase">(optional)</span>
                     </label>
                     <div className="relative">
                       <FileText className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -461,51 +776,30 @@ export const CreatePayment: React.FC = () => {
                         type="text"
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
-                        placeholder="e.g. Coffee & Pastry, Invoice for Consulting"
-                        required
-                        className="w-full pl-10 pr-4 py-3 rounded-2xl bg-white border border-slate-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-400/20 text-xs text-slate-900 placeholder-slate-400 focus:outline-none transition-colors shadow-xs font-medium"
+                        placeholder="e.g. Premium Coffee & Pastry, Invoice #1042"
+                        className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border border-slate-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-400/20 text-xs text-slate-900 placeholder-slate-400 focus:outline-none transition-colors shadow-xs font-medium"
                       />
                     </div>
                   </div>
 
-                  {/* Field 5 & 6: Optional Order/Reference ID & Expiration Time */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Field 5: Optional Order/Reference ID */}
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                        5. Order / Reference ID <span className="text-slate-400 font-normal">(Optional)</span>
-                      </label>
-                      <div className="relative">
-                        <Hash className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          value={orderRef}
-                          onChange={(e) => setOrderRef(e.target.value)}
-                          placeholder="e.g. ORD-9842, Table 4"
-                          className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border border-slate-300 focus:border-purple-500 focus:ring-2 focus:ring-purple-400/20 text-xs text-slate-900 font-mono placeholder-slate-400 focus:outline-none shadow-xs"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Field 6: Expiration Time */}
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-                        6. Expiration Time <span className="text-purple-600">*</span>
-                      </label>
-                      <div className="relative">
-                        <Clock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                        <select
-                          value={expirationMinutes}
-                          onChange={(e) => setExpirationMinutes(Number(e.target.value))}
-                          className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border border-slate-300 focus:border-purple-500 text-xs text-slate-900 focus:outline-none cursor-pointer shadow-xs font-medium"
-                        >
-                          {EXPIRATION_OPTIONS.map((opt) => (
-                            <option key={opt.minutes} value={opt.minutes}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                  {/* Expiration Time */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+                      Expiration Time <span className="text-purple-600">*</span>
+                    </label>
+                    <div className="relative">
+                      <Clock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <select
+                        value={expirationMinutes}
+                        onChange={(e) => setExpirationMinutes(Number(e.target.value))}
+                        className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white border border-slate-300 focus:border-purple-500 text-xs text-slate-900 focus:outline-none cursor-pointer shadow-xs font-medium"
+                      >
+                        {EXPIRATION_OPTIONS.map((opt) => (
+                          <option key={opt.minutes} value={opt.minutes}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 
@@ -514,83 +808,91 @@ export const CreatePayment: React.FC = () => {
                     type="submit"
                     variant="iris"
                     size="lg"
-                    className="w-full shadow-xl shadow-purple-500/20 cursor-pointer font-bold text-sm py-3.5"
-                    disabled={numAmount <= 0}
+                    className="w-full py-4 text-sm font-extrabold shadow-lg shadow-purple-500/25 cursor-pointer"
+                    leftIcon={<Zap className="w-4 h-4" />}
                   >
-                    Generate Payment Request (${numAmount.toFixed(2)})
+                    Generate Multi-Chain Payment Request & QR Code
                   </Button>
                 </form>
               </CardContent>
             </Card>
           </div>
 
-          {/* Right Summary Sidebar (1 Col): Live Calculation Preview */}
+          {/* Right Summary Sidebar (1 Col) */}
           <div className="space-y-6">
+            {/* Live Multi-Chain Rail Route Preview */}
             <Card variant="default">
               <CardHeader
-                title="Checkout Preview"
-                subtitle="Instant summary for your customer"
+                title="Multi-Chain Payment Rail"
+                subtitle="Verifiable cross-network payment specifications"
               />
-              <CardContent className="p-6 space-y-4">
-                {/* 1. Merchant Gross & Net Settlement */}
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2 text-xs shadow-xs">
-                  <div className="flex items-center gap-1.5 text-slate-800 font-bold font-sans">
-                    <Receipt className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Payment Breakdown</span>
-                  </div>
-                  <div className="flex justify-between text-slate-500">
-                    <span>Invoice Amount:</span>
-                    <span className="font-bold text-slate-900 font-mono">${numAmount.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-slate-500">
-                    <span>Selected Asset:</span>
-                    <span className="font-bold text-purple-700 font-mono">
-                      ≈ {calculatedCrypto} {selectedToken}
+              <CardContent className="p-5 space-y-4 text-xs">
+                <div className="space-y-2">
+                  <div className="flex justify-between py-1.5 border-b border-purple-100">
+                    <span className="text-slate-500">Asset & Network:</span>
+                    <span className="font-extrabold text-purple-900 font-sans">
+                      {selectedAsset} on {activeNetworkConfig.network}
                     </span>
                   </div>
-                  <div className="flex justify-between text-slate-500">
-                    <span>Target Network:</span>
-                    <span className="font-bold text-slate-800 font-mono">
-                      {currentChain.shortName}
+
+                  <div className="flex justify-between py-1.5 border-b border-purple-100">
+                    <span className="text-slate-500">Merchant Request:</span>
+                    <span className="font-bold text-slate-900 font-mono">
+                      ${numAmount.toFixed(2)} ({calculatedTokenAmount} {selectedAsset})
                     </span>
                   </div>
-                  <div className="flex justify-between text-slate-500">
-                    <span>IrisMe Fee ({liveEconomics.platformFee.platformFeePercent}%):</span>
-                    <span className="font-semibold text-slate-600 font-mono">-${liveEconomics.platformFee.platformFeeUSD.toFixed(2)}</span>
+
+                  <div className="flex justify-between py-1.5 border-b border-purple-100">
+                    <span className="text-slate-500">Customer Pays:</span>
+                    <span className="font-bold text-slate-900 font-mono">
+                      {calculatedTokenAmount} {selectedAsset} on {activeNetworkConfig.network}
+                    </span>
                   </div>
-                  <div className="pt-2 border-t border-slate-200 flex justify-between font-bold text-emerald-700 font-mono">
-                    <span>Net Settled to Merchant:</span>
-                    <span>${liveEconomics.merchantSettlement.netUSD.toFixed(2)}</span>
+
+                  <div className="flex justify-between py-1.5 border-b border-purple-100">
+                    <span className="text-slate-500">Merchant Receives:</span>
+                    <span className="font-bold text-emerald-700 font-mono">
+                      {calculatedTokenAmount} {selectedAsset} on {activeNetworkConfig.network}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between py-1.5 border-b border-purple-100">
+                    <span className="text-slate-500">iRisme Platform Fee ({DEFAULT_PLATFORM_FEE_PERCENT}%):</span>
+                    <span className="font-bold text-slate-600 font-mono">
+                      -${liveEconomics.platformFee.platformFeeUSD.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between py-1.5 border-b border-purple-100">
+                    <span className="text-slate-500">Customer VERSE Cashback:</span>
+                    <span className="font-bold text-purple-600 font-mono">
+                      +{liveEconomics.customerReward.rewardAmountVerse} VERSE
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between py-1.5 border-b border-purple-100">
+                    <span className="text-slate-500">Compatible Wallets:</span>
+                    <span className="font-semibold text-slate-700 text-right truncate max-w-[150px]">
+                      {activeNetworkConfig.walletCompatibility.slice(0, 3).join(', ')}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between py-1.5">
+                    <span className="text-slate-500">Block Explorer:</span>
+                    <a
+                      href={activeNetworkConfig.explorer.baseUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1"
+                    >
+                      <span>{activeNetworkConfig.explorer.name}</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
                   </div>
                 </div>
 
-                {/* 2. Customer Reward */}
-                <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-50/70 via-cyan-50/70 to-pink-50/70 border border-purple-200 space-y-2 text-xs shadow-xs">
-                  <div className="flex items-center gap-1.5 text-purple-900 font-bold font-sans">
-                    <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Customer VERSE Reward</span>
-                  </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span>Cashback Rate:</span>
-                    <span className="font-bold text-purple-700">{merchantProfile.baseRewardPercent || 1}% VERSE</span>
-                  </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span>Bonus Earned:</span>
-                    <span className="font-bold text-purple-700 font-mono">
-                      +{liveEconomics.customerReward.rewardAmountVerse.toLocaleString()} VERSE
-                    </span>
-                  </div>
-                </div>
-
-                {/* Receiving Address Indicator */}
-                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-1.5 text-[11px] text-slate-600">
-                  <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Self-Custodial Settlement</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-mono truncate">
-                    Funds route to: {merchantProfile.settlementAddress || '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093'}
-                  </p>
+                <div className="p-3 rounded-xl bg-purple-50/80 border border-purple-200 text-[11px] text-purple-900 leading-relaxed">
+                  <span className="font-bold">Pure Multi-Chain Rule:</span> The merchant receives the exact token requested ({selectedAsset}) on the specified network ({activeNetworkConfig.network}) with zero forced conversions.
                 </div>
               </CardContent>
             </Card>
@@ -598,14 +900,11 @@ export const CreatePayment: React.FC = () => {
         </div>
       )}
 
-      {/* Currency & Token Logo Modal */}
-      <TokenLogoModal
-        isOpen={isLogoGalleryOpen}
-        onClose={() => setIsLogoGalleryOpen(false)}
-        onSelectToken={(sym) => {
-          handleSelectToken(sym as SupportedToken);
-          setIsLogoGalleryOpen(false);
-        }}
+      {/* Manage Multi-Chain Receiving Addresses Modal */}
+      <ReceivingAddressesModal
+        isOpen={isAddressModalOpen}
+        onClose={() => setIsAddressModalOpen(false)}
+        highlightNetwork={activeNetworkConfig.network}
       />
     </div>
   );

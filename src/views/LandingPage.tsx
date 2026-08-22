@@ -21,6 +21,7 @@ import {
   Coins,
   ArrowRight,
   Zap,
+  QrCode,
 } from 'lucide-react';
 
 export const LandingPage: React.FC = () => {
@@ -130,7 +131,7 @@ export const LandingPage: React.FC = () => {
                 </p>
               </div>
 
-              {/* Primary Connect Wallet Button */}
+              {/* Primary Connect Wallet Button & Quick Scan to Pay CTA */}
               <div className="space-y-3">
                 <Button
                   variant="iris"
@@ -141,6 +142,16 @@ export const LandingPage: React.FC = () => {
                   leftIcon={!isConnecting ? <Wallet className="w-5 h-5" /> : undefined}
                 >
                   {isConnecting ? 'Waiting for Wallet Approval...' : 'Connect Wallet'}
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="md"
+                  className="w-full py-3 text-sm font-bold border-purple-200 text-purple-700 hover:bg-purple-50 hover:border-purple-300 cursor-pointer transition-all flex items-center justify-center gap-2 shadow-2xs"
+                  onClick={() => navigate('/scan')}
+                >
+                  <QrCode className="w-4 h-4 text-purple-600" />
+                  <span>Scan Merchant QR to Pay</span>
                 </Button>
 
                 {isConnecting && (
@@ -256,8 +267,21 @@ export const LandingPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Disconnect Action */}
-              <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
+              {/* Primary Connected CTA: Scan to Pay */}
+              <div className="pt-1">
+                <Button
+                  variant="iris"
+                  size="lg"
+                  className="w-full py-3.5 text-sm font-bold shadow-lg shadow-purple-500/20 cursor-pointer flex items-center justify-center gap-2"
+                  onClick={() => navigate('/scan')}
+                >
+                  <QrCode className="w-4 h-4" />
+                  <span>Scan Merchant QR to Pay</span>
+                </Button>
+              </div>
+
+              {/* Disconnect & Manage Action */}
+              <div className="flex flex-col sm:flex-row items-center gap-2">
                 <Button
                   variant="outline"
                   size="md"
@@ -269,9 +293,9 @@ export const LandingPage: React.FC = () => {
                 </Button>
 
                 <Button
-                  variant="iris"
+                  variant="outline"
                   size="md"
-                  className="w-full font-bold cursor-pointer"
+                  className="w-full font-bold cursor-pointer border-slate-300 text-slate-700 hover:bg-slate-50"
                   onClick={() => setIsWalletModalOpen(true)}
                 >
                   Manage Wallet
@@ -302,6 +326,14 @@ export const LandingPage: React.FC = () => {
           <span>© 2026 Non-Custodial Web3 Payment & Loyalty Protocol</span>
         </div>
         <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/scan')}
+            className="hover:text-purple-600 font-bold transition-colors cursor-pointer text-purple-700 flex items-center gap-1"
+          >
+            <QrCode className="w-3.5 h-3.5" />
+            <span>Scan to Pay</span>
+          </button>
+          <span className="text-slate-300">•</span>
           <button
             onClick={() => navigate('/merchant')}
             className="hover:text-purple-600 font-medium transition-colors cursor-pointer"

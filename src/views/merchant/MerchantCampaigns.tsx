@@ -5,6 +5,7 @@ import { Card, CardHeader, CardContent } from '../../components/ui/Card';
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import { RewardCampaign } from '../../types';
 import { IrisLogo } from '../../components/ui/IrisLogo';
+import { MerchantRegistrationRequired } from '../../components/merchant/MerchantRegistrationRequired';
 import {
   Flame,
   PlusCircle,
@@ -23,8 +24,18 @@ import {
 } from 'lucide-react';
 
 export const MerchantCampaigns: React.FC = () => {
-  const { campaigns, toggleCampaignStatus, createCampaign } = useApp();
+  const { campaigns, toggleCampaignStatus, createCampaign, merchantProfile } = useApp();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+  const isRegistered = Boolean(
+    merchantProfile.id &&
+    merchantProfile.name &&
+    merchantProfile.settlementAddress
+  );
+
+  if (!isRegistered) {
+    return <MerchantRegistrationRequired title="Register Business to Launch Loyalty Campaigns" />;
+  }
 
   // Form states matching user specs
   const [campaignName, setCampaignName] = useState('');

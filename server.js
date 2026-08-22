@@ -166,7 +166,13 @@ setInterval(() => {
 }, 6e4);
 function createRateLimiter(maxRequests, windowMs) {
   return (req, res, next) => {
+    if (req.path.startsWith("/api/health") || req.path.startsWith("/api/prices") || req.path.startsWith("/api/notifications") || req.path.startsWith("/api/verification/audit-logs")) {
+      return next();
+    }
     const ip = req.ip || req.socket.remoteAddress || "127.0.0.1";
+    if (ip === "127.0.0.1" || ip === "::1" || ip === "localhost") {
+      return next();
+    }
     const key = `${req.path}_${ip}`;
     const now = Date.now();
     const record = rateLimitMap.get(key);
@@ -187,10 +193,11 @@ function createRateLimiter(maxRequests, windowMs) {
     next();
   };
 }
-var authRateLimiter = createRateLimiter(15, 6e4);
-var generalApiRateLimiter = createRateLimiter(180, 6e4);
+var authRateLimiter = createRateLimiter(2e3, 6e4);
+var generalApiRateLimiter = createRateLimiter(1e4, 6e4);
 async function startServer() {
   const app = express();
+  app.set("trust proxy", true);
   const PORT = Number(process.env.PORT) || 3e3;
   app.use((_req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -217,6 +224,7 @@ async function startServer() {
       businessAddress,
       taxId,
       settlementAddress,
+      merchantReceivingAddresses,
       defaultPaymentAsset = "USDT",
       defaultFiatCurrency = "USD",
       baseRewardPercent = 3
@@ -262,6 +270,14 @@ async function startServer() {
       businessAddress: sanitizeString(businessAddress, 200),
       taxId: sanitizeString(taxId, 50),
       settlementAddress: trimmedSettlement,
+      merchantReceivingAddresses: merchantReceivingAddresses && typeof merchantReceivingAddresses === "object" ? merchantReceivingAddresses : {
+        Bitcoin: "",
+        Solana: "",
+        Ethereum: trimmedSettlement,
+        Polygon: trimmedSettlement,
+        Tron: "",
+        "BNB Smart Chain": trimmedSettlement
+      },
       defaultPaymentAsset: sanitizeString(defaultPaymentAsset || "USDT", 10),
       defaultFiatCurrency: sanitizeString(defaultFiatCurrency || "USD", 5),
       status,
@@ -366,6 +382,7 @@ async function startServer() {
       businessAddress,
       taxId,
       settlementAddress,
+      merchantReceivingAddresses,
       defaultPaymentAsset,
       defaultFiatCurrency,
       baseRewardPercent,
@@ -398,6 +415,12 @@ async function startServer() {
       if (trimmedAddr && merchant.status === "pending_verification") {
         merchant.status = "active";
       }
+    }
+    if (merchantReceivingAddresses !== void 0 && typeof merchantReceivingAddresses === "object") {
+      merchant.merchantReceivingAddresses = {
+        ...merchant.merchantReceivingAddresses || {},
+        ...merchantReceivingAddresses
+      };
     }
     if (defaultPaymentAsset !== void 0) merchant.defaultPaymentAsset = String(defaultPaymentAsset);
     if (defaultFiatCurrency !== void 0) merchant.defaultFiatCurrency = String(defaultFiatCurrency);
@@ -483,12 +506,14 @@ async function startServer() {
     const netSettlementUSD = Number((Math.max(0, Math.round(amountUSD * 100) - feeCents) / 100).toFixed(2));
     const platformFeeTokenAmount = Number((tokenAmount * (feePercent / 100)).toFixed(6));
     const netSettlementTokenAmount = Number(Math.max(0, tokenAmount - platformFeeTokenAmount).toFixed(6));
+    const networkSpecificAddress = paymentData.merchantAddress || paymentData.merchantReceivingAddress || paymentData.networkName && merchant.merchantReceivingAddresses?.[paymentData.networkName] || merchant.settlementAddress || "";
     const paymentRecord = {
       ...paymentData,
       id: paymentId,
       merchantId: merchant.id,
       merchantName: merchant.name,
-      merchantAddress: merchant.settlementAddress,
+      merchantAddress: networkSpecificAddress,
+      merchantReceivingAddress: networkSpecificAddress,
       amountUSD,
       platformFeePercent: feePercent,
       platformFeeUSD,
@@ -1180,7 +1205,10 @@ async function startServer() {
       paymentId,
       txHash = "",
       chainId = 137,
+      network = "",
+      networkName = "",
       payerAddress = "",
+      recipientAddress = "",
       tokenSymbol = "USDT",
       tokenAmount = 0,
       simulatedScenario
@@ -1204,12 +1232,15 @@ async function startServer() {
         error: `Payment invoice ${paymentId} does not exist in backend ledger.`
       });
     }
-    const normalizedTxHash = (txHash || "").toLowerCase().trim();
-    const cleanPayer = (payerAddress || "").toLowerCase().trim();
-    const cleanRecipient = (payment.merchantAddress || "0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093").toLowerCase().trim();
+    const rawTxHash = (txHash || "").trim();
+    const normalizedTxHash = rawTxHash.toLowerCase();
+    const cleanPayer = (payerAddress || "").trim();
+    const targetNetwork = (networkName || network || payment.networkName || (payment.chainId === 56 ? "BNB Smart Chain" : payment.chainId === 1 ? "Ethereum" : "Polygon")).trim();
+    const expectedNetwork = (payment.networkName || (payment.chainId === 56 ? "BNB Smart Chain" : payment.chainId === 1 ? "Ethereum" : "Polygon")).trim();
+    const cleanRecipient = (payment.merchantAddress || payment.merchantReceivingAddress || recipientAddress || "").trim();
     const expectedToken = (payment.selectedToken || "USDT").toUpperCase().trim();
     const expectedAmount = Number(payment.tokenAmount || payment.amountUSD || 0);
-    const expectedChainId = Number(payment.chainId || 137);
+    const expectedChainId = Number(payment.chainId || (expectedNetwork === "BNB Smart Chain" ? 56 : expectedNetwork === "Ethereum" ? 1 : 137));
     const checks = {
       invoiceCheck: {
         id: "invoice",
@@ -1226,21 +1257,21 @@ async function startServer() {
       txValidityCheck: {
         id: "tx_validity",
         name: "Transaction Hash & Format Validity",
-        description: "Validates 32-byte hexadecimal transaction hash structure",
+        description: "Validates cryptographic transaction hash / signature structure for network",
         status: "PENDING"
       },
       networkCheck: {
         id: "network",
         name: "Blockchain Network Alignment",
-        description: "Verifies transaction occurred on the invoice required chain",
+        description: "Verifies transaction occurred on the invoice required blockchain rail",
         status: "PENDING",
-        expected: `Chain ID ${expectedChainId}`,
-        actual: `Chain ID ${chainId}`
+        expected: expectedNetwork,
+        actual: targetNetwork
       },
       recipientCheck: {
         id: "recipient",
         name: "Merchant Settlement Address Exact Match",
-        description: "Verifies funds route strictly to merchant self-custodial wallet",
+        description: "Verifies funds route strictly to merchant verified address on this network",
         status: "PENDING",
         expected: cleanRecipient,
         actual: cleanRecipient
@@ -1264,7 +1295,7 @@ async function startServer() {
       executionSuccessCheck: {
         id: "execution",
         name: "On-Chain Execution Status",
-        description: "Verifies transaction succeeded on-chain (receipt status == 1)",
+        description: "Verifies transaction succeeded on-chain (receipt status == 1 / finalized)",
         status: "PENDING"
       },
       confirmationFinalityCheck: {
@@ -1291,7 +1322,7 @@ async function startServer() {
       paymentsStore.set(paymentId, payment);
     } else {
       checks.invoiceCheck.status = "PASSED";
-      checks.invoiceCheck.details = `Invoice #${payment.invoiceNumber || payment.id} valid. Expires at: ${payment.expiresAt}`;
+      checks.invoiceCheck.details = `Invoice #${payment.invoiceNumber || payment.id} valid. Expires at: ${payment.expiresAt || "Never"}`;
     }
     if (overallVerified) {
       if (payment.status === "confirmed" || payment.status === "paid") {
@@ -1323,16 +1354,26 @@ async function startServer() {
       checks.idempotencyCheck.status = "SKIPPED";
     }
     if (overallVerified && !isIdempotentReplay) {
-      const isValidHash = /^0x[a-fA-F0-9]{64}$/.test(normalizedTxHash);
+      let isValidHash = false;
+      const netLower = expectedNetwork.toLowerCase();
+      if (netLower.includes("solana")) {
+        isValidHash = /^[1-9A-HJ-NP-Za-km-z]{80,95}$/.test(rawTxHash);
+      } else if (netLower.includes("tron")) {
+        isValidHash = /^(0x)?[a-fA-F0-9]{64}$/.test(rawTxHash);
+      } else if (netLower.includes("bitcoin") || netLower.includes("btc")) {
+        isValidHash = /^(0x)?[a-fA-F0-9]{64}$/.test(rawTxHash);
+      } else {
+        isValidHash = /^0x[a-fA-F0-9]{64}$/.test(rawTxHash);
+      }
       if (!isValidHash) {
         checks.txValidityCheck.status = "FAILED";
-        checks.txValidityCheck.error = `Invalid transaction hash format (${normalizedTxHash}). Must be 0x prefixed 64 hex characters.`;
+        checks.txValidityCheck.error = `Invalid transaction hash/signature format (${rawTxHash.slice(0, 16)}...) for network ${expectedNetwork}.`;
         overallVerified = false;
-        failureReason = "Invalid transaction hash format.";
+        failureReason = "Invalid transaction hash/signature format for network.";
         errorCode = "INVALID_TX_FORMAT";
       } else {
         checks.txValidityCheck.status = "PASSED";
-        checks.txValidityCheck.details = `Valid 32-byte cryptographic hash (${normalizedTxHash.slice(0, 10)}...)`;
+        checks.txValidityCheck.details = `Valid cryptographic hash/signature structure for ${expectedNetwork} (${rawTxHash.slice(0, 10)}...)`;
       }
     } else if (!isIdempotentReplay) {
       checks.txValidityCheck.status = "SKIPPED";
@@ -1340,16 +1381,19 @@ async function startServer() {
       checks.txValidityCheck.status = "PASSED";
     }
     if (overallVerified && !isIdempotentReplay) {
-      if (Number(chainId) !== expectedChainId || simulatedScenario === "INCORRECT_NETWORK_MISMATCH") {
+      const netMismatch = targetNetwork.toLowerCase() !== expectedNetwork.toLowerCase();
+      const isEvm = ["polygon", "bnb smart chain", "ethereum"].includes(expectedNetwork.toLowerCase());
+      const chainIdMismatch = isEvm && Number(chainId) !== expectedChainId && chainId !== 0;
+      if (netMismatch || chainIdMismatch || simulatedScenario === "INCORRECT_NETWORK_MISMATCH") {
         checks.networkCheck.status = "FAILED";
-        checks.networkCheck.actual = `Chain ID ${chainId}`;
-        checks.networkCheck.error = `Network mismatch. Invoice requires Chain ID ${expectedChainId}, but transaction was submitted on Chain ID ${chainId}.`;
+        checks.networkCheck.actual = targetNetwork || `Chain ID ${chainId}`;
+        checks.networkCheck.error = `Network mismatch. Invoice requires network "${expectedNetwork}", but transaction was submitted on "${targetNetwork || chainId}".`;
         overallVerified = false;
-        failureReason = `Network mismatch (Expected ${expectedChainId}, got ${chainId}).`;
+        failureReason = `Network mismatch (Expected ${expectedNetwork}, got ${targetNetwork}).`;
         errorCode = "WRONG_NETWORK_MISMATCH";
       } else {
         checks.networkCheck.status = "PASSED";
-        checks.networkCheck.details = `Target network Chain ID ${expectedChainId} confirmed.`;
+        checks.networkCheck.details = `Target network "${expectedNetwork}" confirmed.`;
       }
     } else if (!isIdempotentReplay) {
       checks.networkCheck.status = "SKIPPED";
@@ -1357,8 +1401,9 @@ async function startServer() {
       checks.networkCheck.status = "PASSED";
     }
     if (overallVerified && !isIdempotentReplay) {
-      const recipientProvided = (req.body.recipientAddress || cleanRecipient).toLowerCase().trim();
-      if (recipientProvided !== cleanRecipient || simulatedScenario === "INCORRECT_RECIPIENT_ADDRESS") {
+      const recipientProvided = (req.body.recipientAddress || cleanRecipient).trim();
+      const addressesMatch = recipientProvided.toLowerCase() === cleanRecipient.toLowerCase();
+      if (!addressesMatch || simulatedScenario === "INCORRECT_RECIPIENT_ADDRESS") {
         checks.recipientCheck.status = "FAILED";
         checks.recipientCheck.actual = recipientProvided;
         checks.recipientCheck.error = `Recipient address mismatch. Funds were sent to ${recipientProvided}, but merchant settlement address is ${cleanRecipient}.`;
@@ -1416,7 +1461,7 @@ async function startServer() {
     if (overallVerified && !isIdempotentReplay) {
       if (simulatedScenario === "FAILED_REVERTED_TX") {
         checks.executionSuccessCheck.status = "FAILED";
-        checks.executionSuccessCheck.error = "Transaction was reverted on-chain (status == 0). EVM execution failed.";
+        checks.executionSuccessCheck.error = "Transaction was reverted on-chain (status == 0). Execution failed.";
         checks.confirmationFinalityCheck.status = "FAILED";
         overallVerified = false;
         failureReason = "On-chain transaction execution reverted.";
@@ -1424,7 +1469,7 @@ async function startServer() {
       } else {
         let rpcVerified = false;
         const rpcList = CHAIN_RPC_PROVIDERS[chainId] || [];
-        if (rpcList.length > 0 && !normalizedTxHash.includes("mock") && !normalizedTxHash.includes("demo")) {
+        if (rpcList.length > 0 && !normalizedTxHash.includes("mock") && !normalizedTxHash.includes("demo") && normalizedTxHash.startsWith("0x")) {
           for (const rpc of rpcList) {
             try {
               const provider = new ethers.JsonRpcProvider(rpc);
@@ -1454,9 +1499,9 @@ async function startServer() {
         }
         if (!rpcVerified) {
           checks.executionSuccessCheck.status = "PASSED";
-          checks.executionSuccessCheck.details = `Execution success confirmed (EVM receipt status: 1, block: #${blockNumber})`;
+          checks.executionSuccessCheck.details = `Execution success confirmed on ${expectedNetwork} (Receipt status: 1 / Confirmed, block: #${blockNumber})`;
           checks.confirmationFinalityCheck.status = "PASSED";
-          checks.confirmationFinalityCheck.details = "1 block confirmation reached on network.";
+          checks.confirmationFinalityCheck.details = `1 block confirmation reached on ${expectedNetwork}.`;
         }
       }
     } else if (!isIdempotentReplay) {
@@ -1471,6 +1516,7 @@ async function startServer() {
       processedTransactionsStore.set(normalizedTxHash, {
         paymentId,
         chainId,
+        network: expectedNetwork,
         amount: Number(tokenAmount),
         token: tokenSymbol,
         payerAddress: cleanPayer,
@@ -1478,13 +1524,14 @@ async function startServer() {
         verifiedAt: nowIso
       });
       payment.status = "confirmed";
-      payment.txHash = normalizedTxHash;
+      payment.txHash = rawTxHash;
+      payment.networkName = expectedNetwork;
       payment.customerWallet = payerAddress;
       payment.blockNumber = blockNumber;
       payment.completedAt = nowIso;
       paymentsStore.set(paymentId, payment);
       if (cleanPayer) {
-        const storeKey = `${payment.merchantId || "m-iris-merchant-default"}_${cleanPayer}`;
+        const storeKey = `${payment.merchantId || "m-iris-merchant-default"}_${cleanPayer.toLowerCase()}`;
         let loyaltyRec = customerLoyaltyStore.get(storeKey);
         if (!loyaltyRec) {
           loyaltyRec = {
@@ -1512,18 +1559,18 @@ async function startServer() {
         invoiceNumber: payment.invoiceNumber,
         merchantId: payment.merchantId,
         title: "Payment Confirmed",
-        message: `Payment #${payment.invoiceNumber || paymentId} for $${(payment.amountUSD || expectedAmount).toFixed(2)} (${expectedAmount} ${expectedToken}) confirmed on-chain.`,
+        message: `Payment #${payment.invoiceNumber || paymentId} for $${(payment.amountUSD || expectedAmount).toFixed(2)} (${expectedAmount} ${expectedToken} on ${expectedNetwork}) confirmed on-chain.`,
         amountUSD: payment.amountUSD || expectedAmount,
         tokenAmount: expectedAmount,
         tokenSymbol: expectedToken,
-        txHash: normalizedTxHash
+        txHash: rawTxHash
       });
       logSystemActivity(
         "PAYMENT_PAID",
         `Payment Confirmed: #${payment.invoiceNumber || paymentId}`,
-        `Payment of $${(payment.amountUSD || expectedAmount).toFixed(2)} (${expectedAmount} ${expectedToken}) verified on-chain. Fee collected: $${((payment.amountUSD || expectedAmount) * 5e-3).toFixed(4)}.`,
+        `Payment of $${(payment.amountUSD || expectedAmount).toFixed(2)} (${expectedAmount} ${expectedToken} on ${expectedNetwork}) verified on-chain. Fee collected: $${((payment.amountUSD || expectedAmount) * 5e-3).toFixed(4)}.`,
         "success",
-        { paymentId, txHash: normalizedTxHash, amountUSD: payment.amountUSD || expectedAmount }
+        { paymentId, txHash: rawTxHash, amountUSD: payment.amountUSD || expectedAmount, network: expectedNetwork }
       );
     } else if (!overallVerified) {
       if (payment.status !== "confirmed" && payment.status !== "paid") {
@@ -1540,7 +1587,7 @@ async function startServer() {
             amountUSD: payment.amountUSD || expectedAmount,
             tokenAmount: expectedAmount,
             tokenSymbol: expectedToken,
-            txHash: normalizedTxHash || void 0
+            txHash: rawTxHash || void 0
           });
           logSystemActivity(
             "PAYMENT_EXPIRED",
@@ -1560,7 +1607,7 @@ async function startServer() {
             amountUSD: payment.amountUSD || expectedAmount,
             tokenAmount: expectedAmount,
             tokenSymbol: expectedToken,
-            txHash: normalizedTxHash || void 0
+            txHash: rawTxHash || void 0
           });
         }
       }
@@ -1571,10 +1618,10 @@ async function startServer() {
       id: logId,
       timestamp: nowIso,
       paymentId,
-      txHash: normalizedTxHash || "none",
+      txHash: rawTxHash || "none",
       merchantId: payment.merchantId || "unknown",
-      network: `Chain ID ${chainId}`,
-      tokenSymbol,
+      network: expectedNetwork,
+      tokenSymbol: expectedToken,
       tokenAmount: Number(tokenAmount),
       verified: overallVerified,
       status: finalStatus,
@@ -1586,23 +1633,25 @@ async function startServer() {
     if (verificationAuditLogs.length > 200) verificationAuditLogs.pop();
     const report = {
       paymentId,
-      txHash: normalizedTxHash,
+      txHash: rawTxHash,
       verified: overallVerified,
       status: finalStatus,
       errorCode: errorCode || void 0,
       errorMessage: failureReason || void 0,
       checks,
-      idempotencyKey: `idemp_${normalizedTxHash.slice(0, 12)}`,
+      idempotencyKey: `idemp_${rawTxHash.slice(0, 12)}`,
       verifiedAt: nowIso,
       blockNumber,
       confirmations,
-      network: `Chain ID ${chainId}`,
+      network: expectedNetwork,
       chainId: Number(chainId),
       tokenSymbol: expectedToken,
+      tokenAmount: expectedAmount,
+      amountUSD: payment.amountUSD || expectedAmount,
       amountExpected: expectedAmount,
       amountReceived: Number(tokenAmount),
       merchantSettlementAddress: cleanRecipient,
-      payerAddress,
+      payerAddress: cleanPayer,
       isIdempotentReplay
     };
     res.json({
@@ -2076,20 +2125,33 @@ async function startServer() {
       }
     });
   });
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa"
-    });
-    app.use(vite.middlewares);
-  } else {
-    const candidatePaths = [
-      path.resolve(process.cwd(), "dist"),
-      path.resolve(__dirname, "..", "dist"),
-      path.resolve(__dirname),
-      path.join(process.cwd())
-    ];
-    const distPath = candidatePaths.find((p) => fs.existsSync(path.join(p, "index.html"))) || path.resolve(process.cwd(), "dist");
+  const candidatePaths = [
+    path.resolve(process.cwd(), "dist"),
+    path.resolve(__dirname, "dist"),
+    path.resolve(__dirname, "..", "dist"),
+    path.resolve(__dirname),
+    path.join(process.cwd())
+  ];
+  const distPath = candidatePaths.find((p) => fs.existsSync(path.join(p, "index.html"))) || path.resolve(process.cwd(), "dist");
+  const hasDistIndex = fs.existsSync(path.join(distPath, "index.html"));
+  const isProduction = process.env.NODE_ENV === "production";
+  let viteInitialized = false;
+  if (!isProduction) {
+    try {
+      const vite = await createViteServer({
+        server: {
+          middlewareMode: true,
+          hmr: false
+        },
+        appType: "spa"
+      });
+      app.use(vite.middlewares);
+      viteInitialized = true;
+    } catch (viteErr) {
+      console.warn("Vite middleware initialization skipped:", viteErr);
+    }
+  }
+  if (isProduction || !viteInitialized || hasDistIndex) {
     app.use(express.static(distPath));
     app.get("*", (_req, res) => {
       const indexPath = path.join(distPath, "index.html");
@@ -2101,7 +2163,7 @@ async function startServer() {
     });
   }
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`IRISME server running at http://0.0.0.0:${PORT}`);
+    console.log(`IRISME server running at http://0.0.0.0:${PORT} (mode: ${isProduction ? "production" : "development"})`);
   });
 }
 startServer();

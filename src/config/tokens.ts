@@ -129,7 +129,7 @@ export const TOKEN_CONFIGS: Record<SupportedToken, TokenAddressConfig> = {
   },
   SOL: {
     symbol: 'SOL',
-    name: 'Solana (Native Layer 1)',
+    name: 'Solana (Solana Mainnet)',
     decimals: 9,
     rateToUSD: 184.2,
     icon: '🟣',

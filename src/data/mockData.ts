@@ -96,7 +96,7 @@ export const SUPPORTED_TOKENS: TokenOption[] = [
     rateToUSD: 184.2,
     icon: '🟣',
     color: '#14F195',
-    network: 'Solana Mainnet-Beta',
+    network: 'Solana Mainnet',
   },
   {
     symbol: 'BNB',
@@ -215,6 +215,14 @@ export const INITIAL_MERCHANT_PROFILE: MerchantProfile = {
   businessAddress: '',
   taxId: '',
   settlementAddress: '',
+  merchantReceivingAddresses: {
+    Bitcoin: '',
+    Solana: '',
+    Ethereum: '',
+    Polygon: '',
+    Tron: '',
+    'BNB Smart Chain': '',
+  },
   defaultPaymentAsset: 'VERSE',
   defaultFiatCurrency: 'USD',
   baseRewardPercent: 3.0,

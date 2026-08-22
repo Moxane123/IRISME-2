@@ -19,9 +19,20 @@ import {
   Check,
 } from 'lucide-react';
 import { MerchantLoyaltyGoal } from '../../types';
+import { MerchantRegistrationRequired } from '../../components/merchant/MerchantRegistrationRequired';
 
 export const MerchantLoyalty: React.FC = () => {
   const { loyaltyTiers, customerLoyaltyCards, merchantProfile, loyaltyGoal, updateLoyaltyGoal } = useApp();
+
+  const isRegistered = Boolean(
+    merchantProfile.id &&
+    merchantProfile.name &&
+    merchantProfile.settlementAddress
+  );
+
+  if (!isRegistered) {
+    return <MerchantRegistrationRequired title="Register Business to Configure Loyalty Tiers" />;
+  }
 
   const [isEditingGoal, setIsEditingGoal] = useState<boolean>(false);
   const [goalForm, setGoalForm] = useState<MerchantLoyaltyGoal>(() => ({

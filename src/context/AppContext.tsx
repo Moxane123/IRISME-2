@@ -38,11 +38,21 @@ import { RewardEngine } from '../services/rewardService';
 import { EconomicService } from '../services/economicService';
 import { ApiService } from '../services/apiService';
 
-interface CreatePaymentParams {
+import {
+  findTokenNetworkConfig,
+  MULTI_CHAIN_TOKEN_CONFIGS,
+  AllowedPaymentAsset,
+} from '../config/multiChainTokens';
+
+export interface CreatePaymentParams {
   amountUSD: number;
   fiatCurrency?: FiatCurrency;
   selectedToken: SupportedToken;
   chainId?: number;
+  network?: string;
+  networkId?: string;
+  merchantAddress?: string;
+  tokenAmount?: number;
   description: string;
   orderRef?: string;
   merchantType?: MerchantCategoryType;
@@ -1031,17 +1041,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const createPayment = (data: CreatePaymentParams): Payment => {
-    const targetChainId = data.chainId || 137;
+    const multiConfig = findTokenNetworkConfig(data.selectedToken, data.network || data.chainId);
+    const targetChainId = data.chainId || multiConfig?.chainId || 137;
+    const networkName = multiConfig?.network || data.network || 'Polygon';
     const tokenInfo = SUPPORTED_TOKENS.find((t) => t.symbol === data.selectedToken) || SUPPORTED_TOKENS[0];
     const verseToken = SUPPORTED_TOKENS.find((t) => t.symbol === 'VERSE')!;
     const merchantType: MerchantCategoryType = data.merchantType || merchantProfile.merchantType || 'irisme_merchant';
 
-    const tokenAmount =
-      data.selectedToken === 'VERSE'
-        ? Math.round(data.amountUSD / verseToken.rateToUSD)
-        : data.selectedToken === 'ETH' || data.selectedToken === 'WBTC'
-        ? Number((data.amountUSD / tokenInfo.rateToUSD).toFixed(6))
-        : Number((data.amountUSD / tokenInfo.rateToUSD).toFixed(2));
+    let tokenAmount: number;
+    if (typeof data.tokenAmount === 'number' && data.tokenAmount > 0) {
+      tokenAmount = data.tokenAmount;
+    } else if (data.selectedToken === 'VERSE') {
+      tokenAmount = Math.round(data.amountUSD / (verseToken.rateToUSD || 0.0000176));
+    } else if (data.selectedToken === 'BTC') {
+      tokenAmount = Number((data.amountUSD / 96450.0).toFixed(8));
+    } else if (data.selectedToken === 'USDC' || data.selectedToken === 'USDT') {
+      tokenAmount = Number(data.amountUSD.toFixed(2));
+    } else if (data.selectedToken === 'ETH' || data.selectedToken === 'WBTC') {
+      tokenAmount = Number((data.amountUSD / (tokenInfo.rateToUSD || 1)).toFixed(6));
+    } else {
+      tokenAmount = Number((data.amountUSD / (tokenInfo.rateToUSD || 1)).toFixed(2));
+    }
 
     // Calculate base or custom VERSE cashback reward using RewardEngine & centralized config
     const effectiveRewardPercent =
@@ -1055,7 +1075,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       tokenAmount,
       tokenSymbol: data.selectedToken,
       chainId: targetChainId,
-      settlementAddress: merchantProfile.settlementAddress || '',
+      settlementAddress: data.merchantAddress || merchantProfile.settlementAddress || '',
       merchantType,
       cashbackPercent: effectiveRewardPercent,
     });
@@ -1068,19 +1088,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const expiryMinutes = data.expirationMinutes && data.expirationMinutes > 0 ? data.expirationMinutes : 45;
     const expires = new Date(now.getTime() + expiryMinutes * 60 * 1000);
 
+    const settlementAddress =
+      data.merchantAddress ||
+      ((data as any).merchantReceivingAddress as string) ||
+      (networkName && merchantProfile.merchantReceivingAddresses?.[networkName]) ||
+      (multiConfig?.network && merchantProfile.merchantReceivingAddresses?.[multiConfig.network]) ||
+      merchantProfile.settlementAddress ||
+      '';
+
     const newPayment: Payment = {
       id: newId,
       invoiceNumber: newInvoice,
       merchantId: merchantProfile.id,
       merchantName: merchantProfile.name || (merchantType === 'irisme_merchant' ? 'IrisMe Verified Merchant' : 'External Merchant'),
       merchantType,
-      merchantAddress: merchantProfile.settlementAddress || '',
+      merchantAddress: settlementAddress,
       amountUSD: data.amountUSD,
       fiatCurrency: data.fiatCurrency || 'USD',
       selectedToken: data.selectedToken,
       tokenAmount,
+      tokenAddress: multiConfig?.contractAddress,
       chainId: targetChainId,
-      networkName: economics.gasEstimate.networkName,
+      networkName,
       // 1. Blockchain Network Fee (Gas in native token)
       gasEstimate: economics.gasEstimate,
       estimatedGasUSD: economics.gasEstimate.gasCostUSD,
@@ -1213,7 +1242,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
 
       const onChainResult = await web3.executePaymentOnChain({
-        merchantAddress: merchantProfile.settlementAddress || target.merchantAddress || '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093',
+        merchantAddress: merchantProfile.settlementAddress || target.merchantAddress || '',
         token,
         tokenAmount: calculatedTokenAmount,
         paymentId,
@@ -1268,7 +1297,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       payerAddress,
       tokenSymbol: token,
       tokenAmount: calculatedTokenAmount,
-      recipientAddress: merchantProfile.settlementAddress || target.merchantAddress || '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093',
+      recipientAddress: merchantProfile.settlementAddress || target.merchantAddress || '',
     });
 
     if (!verification.verified && !verification.success) {

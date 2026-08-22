@@ -504,6 +504,8 @@ export class ApiService {
     paymentId: string;
     txHash: string;
     chainId?: number;
+    network?: string;
+    networkName?: string;
     payerAddress?: string;
     tokenSymbol?: string;
     tokenAmount?: number;

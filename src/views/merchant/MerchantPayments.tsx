@@ -9,6 +9,7 @@ import { Payment } from '../../types';
 import { getChainConfig, getExplorerTxUrl } from '../../config';
 import { TransactionDetailModal } from '../../components/merchant/TransactionDetailModal';
 import { SettleModal } from '../../components/merchant/SettleModal';
+import { MerchantRegistrationRequired } from '../../components/merchant/MerchantRegistrationRequired';
 import {
   Search,
   PlusCircle,
@@ -45,6 +46,16 @@ export const MerchantPayments: React.FC = () => {
   // Modal State
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
+
+  const isRegistered = Boolean(
+    merchantProfile.id &&
+    merchantProfile.name &&
+    merchantProfile.settlementAddress
+  );
+
+  if (!isRegistered) {
+    return <MerchantRegistrationRequired title="Register Business to Access Payments & Invoices" />;
+  }
 
 
   // Merchant data isolation
@@ -200,7 +211,7 @@ export const MerchantPayments: React.FC = () => {
           <div>
             <div className="text-[11px] uppercase font-bold text-slate-400">Verified Destination</div>
             <div className="text-xs font-bold text-purple-700 font-mono truncate max-w-[180px]">
-              {merchantProfile.settlementAddress || '0x8F3a4e9b72cD4562098b584d4D9fB231f6C2A093'}
+              {merchantProfile.settlementAddress || 'Not Configured'}
             </div>
           </div>
         </div>
@@ -477,7 +488,9 @@ export const MerchantPayments: React.FC = () => {
                     ) : (
                       filteredPayments.map((p) => {
                         const chain = getChainConfig(p.chainId || 137);
-                        const explorerUrl = p.txHash ? getExplorerTxUrl(p.chainId || 137, p.txHash) : null;
+                        const explorerUrl = p.txHash
+                          ? getExplorerTxUrl(p.chainId || 137, p.txHash, p.networkName || p.network)
+                          : null;
                         const createdDate = new Date(p.createdAt);
 
                         return (
@@ -533,7 +546,7 @@ export const MerchantPayments: React.FC = () => {
                                   <div className="text-[11px] text-slate-500">
                                     {p.tokenAmount || p.amountUSD} {p.selectedToken} •{' '}
                                     <span className="font-sans text-purple-700">
-                                      {chain?.shortName || 'Polygon'}
+                                      {p.networkName || p.network || chain?.shortName || 'Polygon'}
                                     </span>
                                   </div>
                                 </div>
